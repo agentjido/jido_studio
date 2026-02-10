@@ -1,0 +1,4 @@
+/* Jido Studio - embedded styles */
+/* Tailwind will be added here during build */
+*, ::before, ::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }

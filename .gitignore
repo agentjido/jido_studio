@@ -1,0 +1,13 @@
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+*.beam
+jido_studio-*.tar
+/tmp/
+/.elixir_ls/
+/priv/plts/
+.DS_Store
