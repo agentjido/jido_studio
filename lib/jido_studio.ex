@@ -47,7 +47,20 @@ defmodule JidoStudio do
 
       config :jido_studio,
         pubsub: MyApp.PubSub,
-        trace_buffer_size: 500
+        auto_start_runtime: true,
+        thread_persistence: true,
+        thread_storage: {Jido.Storage.File, path: "priv/jido_studio/storage"},
+        thread_storage_mode: :studio,
+        thread_retention_days: 30,
+        persist_strategy_context: :summary,
+        trace_buffer_size: 5000,
+        trace_preview_limit: 30,
+        trace_page_limit: 300,
+        trace_include_agent_debug: true,
+        trace_events: JidoStudio.TraceCatalog.default_events(),
+        presenter_registry: %{
+          MyApp.CustomAgent => MyApp.StudioPresenters.CustomAgent
+        }
   """
 
   @doc """

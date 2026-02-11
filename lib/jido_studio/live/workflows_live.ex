@@ -24,7 +24,7 @@ defmodule JidoStudio.WorkflowsLive do
   def render(assigns) do
     ~H"""
     <div class="p-6">
-      <h1 class="text-2xl font-bold text-white mb-4"><%= @page_title %></h1>
+      <h1 class="text-2xl font-bold text-js-text mb-4">{@page_title}</h1>
       <p class="text-gray-400">Workflow visualization coming soon.</p>
     </div>
     """

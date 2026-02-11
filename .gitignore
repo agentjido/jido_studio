@@ -11,3 +11,4 @@ jido_studio-*.tar
 /.elixir_ls/
 /priv/plts/
 .DS_Store
+/node_modules/

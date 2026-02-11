@@ -40,12 +40,15 @@ defmodule JidoStudio.MixProject do
   defp deps do
     [
       {:jido, "~> 2.0.0-rc.4"},
+      {:jido_ai, github: "agentjido/jido_ai", branch: "main"},
       {:phoenix, "~> 1.7"},
       {:phoenix_html, "~> 4.0"},
       {:phoenix_live_view, "~> 1.0"},
       {:phoenix_pubsub, "~> 2.1"},
       {:jason, "~> 1.4"},
+      {:mdex, "~> 0.11.3"},
       {:telemetry_metrics, "~> 1.0"},
+      {:lucide_icons, "~> 2.0"},
 
       # Dev & Test
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
@@ -88,7 +91,8 @@ defmodule JidoStudio.MixProject do
         "compile --warnings-as-errors",
         "credo --min-priority higher",
         "dialyzer"
-      ]
+      ],
+      "assets.build": ["cmd npm run build:css"]
     ]
   end
 end

@@ -1,0 +1,394 @@
+@import "tailwindcss";
+
+@source "../lib/**/*.ex";
+
+@theme inline {
+  --color-js-bg: var(--js-bg);
+  --color-js-bg-surface: var(--js-bg-surface);
+  --color-js-bg-elevated: var(--js-bg-elevated);
+  --color-js-border: var(--js-border);
+  --color-js-border-subtle: var(--js-border-subtle);
+  --color-js-border-strong: var(--js-border-strong);
+  --color-js-text: var(--js-text);
+  --color-js-text-muted: var(--js-text-muted);
+  --color-js-text-subtle: var(--js-text-subtle);
+  --color-js-primary: var(--js-primary);
+  --color-js-primary-foreground: var(--js-primary-foreground);
+  --color-js-accent: var(--js-accent);
+  --color-js-accent-hover: var(--js-accent-hover);
+  --color-js-accent-green: var(--js-accent-green);
+  --color-js-accent-yellow: var(--js-accent-yellow);
+  --color-js-accent-cyan: var(--js-accent-cyan);
+  --color-js-accent-red: var(--js-accent-red);
+  --color-js-success: var(--js-success);
+  --color-js-warning: var(--js-warning);
+  --color-js-error: var(--js-error);
+  --color-js-info: var(--js-info);
+  --color-js-card: var(--js-card);
+  --color-js-card-foreground: var(--js-card-foreground);
+  --color-js-muted: var(--js-muted);
+  --color-js-muted-foreground: var(--js-muted-foreground);
+  --color-js-destructive: var(--js-destructive);
+  --color-js-destructive-foreground: var(--js-destructive-foreground);
+  --color-js-ring: var(--js-ring);
+  --color-js-sidebar-bg: var(--js-sidebar-bg);
+  --color-js-sidebar-foreground: var(--js-sidebar-foreground);
+  --color-js-sidebar-border: var(--js-sidebar-border);
+  --color-js-sidebar-accent: var(--js-sidebar-accent);
+  --color-js-sidebar-accent-foreground: var(--js-sidebar-accent-foreground);
+}
+
+/* Dark theme (default) — aligned with agentjido_xyz :root */
+:root,
+[data-theme="dark"] {
+  --js-bg: #0a0a0a;               /* hsl(0 0% 4%) */
+  --js-bg-surface: #121212;       /* hsl(0 0% 7%) */
+  --js-bg-elevated: #1a1a1a;     /* hsl(0 0% 10%) */
+  --js-border: #292929;           /* hsl(0 0% 16%) */
+  --js-border-subtle: #1a1a1a;   /* hsl(0 0% 10%) */
+  --js-border-strong: #3b3b3b;   /* hsl(0 0% 23%) */
+  --js-text: #e8e8e8;             /* hsl(0 0% 91%) */
+  --js-text-muted: #666666;       /* hsl(0 0% 40%) */
+  --js-text-subtle: #555555;      /* between muted-foreground and border */
+  --js-primary: #00ff80;          /* hsl(152 100% 50%) */
+  --js-primary-foreground: #0a0a0a; /* hsl(0 0% 4%) */
+  --js-accent: #00d4ff;           /* hsl(192 100% 50%) */
+  --js-accent-hover: #00e68a;     /* slightly lighter green */
+  --js-accent-green: #00ff80;     /* hsl(152 100% 50%) */
+  --js-accent-yellow: #ffb700;    /* hsl(43 100% 50%) */
+  --js-accent-cyan: #00d4ff;      /* hsl(192 100% 50%) */
+  --js-accent-red: #e06c6c;       /* hsl(0 73% 71%) */
+  --js-success: #00ff80;          /* matches accent-green */
+  --js-warning: #ffb700;          /* matches accent-yellow */
+  --js-error: #e06c6c;            /* hsl(0 73% 71%) */
+  --js-info: #00d4ff;             /* matches accent-cyan */
+  --js-card: #121212;             /* hsl(0 0% 7%) */
+  --js-card-foreground: #e8e8e8;  /* hsl(0 0% 91%) */
+  --js-muted: #292929;            /* hsl(0 0% 16%) */
+  --js-muted-foreground: #666666; /* hsl(0 0% 40%) */
+  --js-destructive: #e06c6c;      /* hsl(0 73% 71%) */
+  --js-destructive-foreground: #fafafa; /* hsl(0 0% 98%) */
+  --js-ring: #00ff80;             /* hsl(152 100% 50%) */
+  --js-sidebar-bg: #0d0d0d;      /* hsl(0 0% 5%) */
+  --js-sidebar-foreground: #e6e6e6; /* hsl(0 0% 90%) */
+  --js-sidebar-border: #292929;   /* hsl(0 0% 16%) */
+  --js-sidebar-accent: #1a1a1a;  /* hsl(0 0% 10%) */
+  --js-sidebar-accent-foreground: #e6e6e6; /* hsl(0 0% 90%) */
+}
+
+/* Light theme — aligned with agentjido_xyz .light */
+[data-theme="light"] {
+  --js-bg: #fcf9f4;               /* hsl(40 33% 98%) warm cream */
+  --js-bg-surface: #ffffff;       /* hsl(0 0% 100%) */
+  --js-bg-elevated: #f5f2eb;     /* hsl(40 20% 96%) warm off-white */
+  --js-border: #e7e5e2;           /* hsl(24 6% 91%) */
+  --js-border-subtle: #f0eeeb;   /* between surface and border */
+  --js-border-strong: #d5d2ce;   /* hsl(24 6% 84%) */
+  --js-text: #1b1916;             /* hsl(24 10% 10%) warm near-black */
+  --js-text-muted: #756e65;       /* hsl(24 8% 45%) warm gray */
+  --js-text-subtle: #8a847d;      /* lighter warm gray */
+  --js-primary: #0fa968;          /* hsl(160 84% 39%) teal-green */
+  --js-primary-foreground: #fafafa; /* hsl(0 0% 98%) */
+  --js-accent: #0ba5c4;           /* hsl(189 94% 43%) */
+  --js-accent-hover: #0dbf77;     /* slightly lighter teal */
+  --js-accent-green: #0fa968;     /* hsl(160 84% 39%) */
+  --js-accent-yellow: #d68b00;    /* hsl(32 95% 44%) */
+  --js-accent-cyan: #0ba5c4;      /* hsl(189 94% 43%) */
+  --js-accent-red: #e53e3e;       /* hsl(0 72% 51%) */
+  --js-success: #0fa968;          /* matches accent-green */
+  --js-warning: #d68b00;          /* matches accent-yellow */
+  --js-error: #e53e3e;            /* hsl(0 72% 51%) */
+  --js-info: #0ba5c4;             /* matches accent-cyan */
+  --js-card: #ffffff;             /* hsl(0 0% 100%) */
+  --js-card-foreground: #1b1916;  /* hsl(24 10% 10%) */
+  --js-muted: #eeebe6;            /* hsl(40 20% 92%) */
+  --js-muted-foreground: #756e65; /* hsl(24 8% 45%) */
+  --js-destructive: #e53e3e;      /* hsl(0 72% 51%) */
+  --js-destructive-foreground: #fafafa; /* hsl(0 0% 98%) */
+  --js-ring: #0fa968;             /* hsl(160 84% 39%) */
+  --js-sidebar-bg: #f7f4ef;      /* slightly darker than bg */
+  --js-sidebar-foreground: #1b1916; /* warm near-black */
+  --js-sidebar-border: #e7e5e2;  /* matches border */
+  --js-sidebar-accent: #eeebe6;  /* hsl(40 20% 92%) */
+  --js-sidebar-accent-foreground: #1b1916; /* warm near-black */
+}
+
+html {
+  background-color: var(--js-bg);
+  color: var(--js-text);
+}
+
+body {
+  background-color: var(--js-bg);
+  color: var(--js-text);
+  font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Chat markdown rendering */
+.js-chat-markdown > :first-child { margin-top: 0; }
+.js-chat-markdown > :last-child { margin-bottom: 0; }
+.js-chat-markdown p + p,
+.js-chat-markdown ul + p,
+.js-chat-markdown ol + p,
+.js-chat-markdown pre + p,
+.js-chat-markdown blockquote + p { margin-top: 0.6rem; }
+
+.js-chat-markdown ul,
+.js-chat-markdown ol {
+  margin: 0.5rem 0;
+  padding-left: 1.1rem;
+}
+
+.js-chat-markdown li { margin: 0.15rem 0; }
+
+.js-chat-markdown a {
+  color: var(--js-info);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.js-chat-markdown code {
+  border: 1px solid var(--js-border);
+  background: var(--js-bg-elevated);
+  border-radius: 0.375rem;
+  padding: 0.1rem 0.32rem;
+  font-size: 0.86em;
+  word-break: break-word;
+}
+
+.js-chat-markdown pre {
+  border: 1px solid var(--js-border);
+  background: var(--js-bg);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  margin: 0.55rem 0;
+  overflow-x: auto;
+}
+
+.js-chat-markdown pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 0.9em;
+}
+
+.js-chat-markdown blockquote {
+  border-left: 2px solid var(--js-border-strong);
+  margin: 0.55rem 0;
+  padding-left: 0.7rem;
+  color: var(--js-text-muted);
+}
+
+/* Chat composer V2 */
+.js-composer-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  border: 1px solid var(--js-border);
+  border-radius: 0.65rem;
+  background: color-mix(in oklab, var(--js-bg-surface) 82%, var(--js-bg) 18%);
+  padding: 0.5rem;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.js-composer-shell:focus-within {
+  border-color: color-mix(in oklab, var(--js-ring) 45%, var(--js-border) 55%);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--js-ring) 20%, transparent);
+}
+
+.js-composer-input-wrap {
+  border: 1px solid var(--js-border);
+  border-radius: 0.5rem;
+  background: color-mix(in oklab, var(--js-bg-elevated) 85%, var(--js-bg) 15%);
+  padding: 0.35rem 0.55rem;
+}
+
+.js-composer-input-wrap:focus-within {
+  border-color: color-mix(in oklab, var(--js-ring) 45%, var(--js-border) 55%);
+}
+
+.js-composer-input {
+  width: 100%;
+  min-height: 2.1rem;
+  max-height: 14.5rem;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--js-text);
+  font-size: 0.98rem;
+  line-height: 1.45;
+  padding: 0.15rem 0;
+  resize: none;
+  overflow-y: hidden;
+}
+
+.js-composer-input::placeholder {
+  color: var(--js-text-muted);
+}
+
+.js-composer-input:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
+.js-composer-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.js-composer-controls-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  flex-wrap: wrap;
+}
+
+.js-composer-select-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 2rem;
+  border: 1px solid var(--js-border);
+  border-radius: 0.45rem;
+  background: color-mix(in oklab, var(--js-bg-elevated) 86%, var(--js-bg) 14%);
+  padding: 0 0.5rem;
+}
+
+.js-composer-select-wrap-model {
+  min-width: 12.25rem;
+}
+
+.js-composer-select-wrap:focus-within {
+  border-color: color-mix(in oklab, var(--js-ring) 45%, var(--js-border) 55%);
+}
+
+.js-composer-select {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--js-text);
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+.js-composer-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.js-composer-ui-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--js-info) 16%, transparent);
+  color: var(--js-info);
+  font-size: 11px;
+  line-height: 1;
+  padding: 0.25rem 0.5rem;
+}
+
+.js-composer-meta {
+  flex: 1;
+  min-width: 11rem;
+  color: var(--js-text-muted);
+  font-size: 0.76rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.js-composer-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid color-mix(in oklab, var(--js-primary) 40%, transparent);
+  border-radius: 0.55rem;
+  background: var(--js-primary);
+  color: var(--js-primary-foreground);
+  transition: filter 120ms ease, opacity 120ms ease, transform 120ms ease;
+}
+
+.js-composer-send:hover:not(:disabled) {
+  filter: brightness(110%);
+  transform: translateY(-1px);
+}
+
+.js-composer-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 50rem) {
+  .js-composer-controls {
+    align-items: flex-start;
+  }
+
+  .js-composer-meta {
+    width: 100%;
+    order: 3;
+    white-space: normal;
+  }
+}
+
+/* Scoped pane scrollbar styling */
+.js-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--js-border-strong) transparent;
+  scrollbar-gutter: stable both-edges;
+  overscroll-behavior: contain;
+}
+
+.js-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.js-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.js-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--js-border-strong);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+.js-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: var(--js-text-muted);
+}
+
+/* Use one-side gutter for narrow rails to avoid clipping right borders. */
+.js-scroll-single-gutter {
+  scrollbar-gutter: stable;
+}
+
+/* Let LiveView root wrappers participate in fixed-height workbench layout */
+@media (min-width: 64rem) {
+  .js-main-workbench > [id^="phx-"] {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    flex-direction: column;
+  }
+}
+
+/* Theme toggle icon visibility */
+.js-theme-icon-sun { display: block; }
+.js-theme-icon-moon { display: none; }
+.js-theme-label-dark { display: inline; }
+.js-theme-label-light { display: none; }
+
+[data-theme="light"] .js-theme-icon-sun { display: none; }
+[data-theme="light"] .js-theme-icon-moon { display: block; }
+[data-theme="light"] .js-theme-label-dark { display: none; }
+[data-theme="light"] .js-theme-label-light { display: inline; }
