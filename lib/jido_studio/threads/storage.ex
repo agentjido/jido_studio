@@ -49,12 +49,14 @@ defmodule JidoStudio.Threads.Storage do
   end
 
   @spec workspace_key(String.t(), String.t()) :: tuple()
-  def workspace_key(agent_slug, instance_id) when is_binary(agent_slug) and is_binary(instance_id) do
+  def workspace_key(agent_slug, instance_id)
+      when is_binary(agent_slug) and is_binary(instance_id) do
     {:studio_workspace, agent_slug, instance_id}
   end
 
   @spec workspace_id(String.t(), String.t()) :: String.t()
-  def workspace_id(agent_slug, instance_id) when is_binary(agent_slug) and is_binary(instance_id) do
+  def workspace_id(agent_slug, instance_id)
+      when is_binary(agent_slug) and is_binary(instance_id) do
     "#{agent_slug}::#{instance_id}"
   end
 
@@ -75,11 +77,13 @@ defmodule JidoStudio.Threads.Storage do
 
   @spec put_workspace_checkpoint(String.t(), String.t(), map(), storage_opts()) ::
           :ok | {:error, term()}
-  def put_workspace_checkpoint(agent_slug, instance_id, checkpoint, opts \\ []) when is_map(checkpoint) do
+  def put_workspace_checkpoint(agent_slug, instance_id, checkpoint, opts \\ [])
+      when is_map(checkpoint) do
     put_checkpoint(workspace_key(agent_slug, instance_id), checkpoint, opts)
   end
 
-  @spec delete_workspace_checkpoint(String.t(), String.t(), storage_opts()) :: :ok | {:error, term()}
+  @spec delete_workspace_checkpoint(String.t(), String.t(), storage_opts()) ::
+          :ok | {:error, term()}
   def delete_workspace_checkpoint(agent_slug, instance_id, opts \\ []) do
     delete_checkpoint(workspace_key(agent_slug, instance_id), opts)
   end
@@ -115,7 +119,8 @@ defmodule JidoStudio.Threads.Storage do
 
   @spec append_thread(String.t(), [Jido.Thread.Entry.t()], storage_opts()) ::
           {:ok, Jido.Thread.t()} | {:error, term()}
-  def append_thread(thread_key, entries, opts \\ []) when is_binary(thread_key) and is_list(entries) do
+  def append_thread(thread_key, entries, opts \\ [])
+      when is_binary(thread_key) and is_list(entries) do
     with {:ok, {adapter, adapter_opts}} <- resolve_storage(opts) do
       expected_rev = Keyword.get(opts, :expected_rev)
 
@@ -167,7 +172,8 @@ defmodule JidoStudio.Threads.Storage do
   def normalize_workspace_index(index) when is_map(index) do
     %{
       schema_version: @workspace_index_version,
-      updated_at: normalize_integer(Map.get(index, :updated_at) || Map.get(index, "updated_at"), now_ms()),
+      updated_at:
+        normalize_integer(Map.get(index, :updated_at) || Map.get(index, "updated_at"), now_ms()),
       items: normalize_index_items(Map.get(index, :items) || Map.get(index, "items") || %{})
     }
   end
@@ -249,7 +255,8 @@ defmodule JidoStudio.Threads.Storage do
     |> Enum.map(&sanitize_term(&1, depth + 1))
   end
 
-  defp sanitize_term(binary, _depth) when is_binary(binary) and byte_size(binary) > @max_binary_size do
+  defp sanitize_term(binary, _depth)
+       when is_binary(binary) and byte_size(binary) > @max_binary_size do
     binary_part(binary, 0, @max_binary_size) <> "...[truncated]"
   end
 

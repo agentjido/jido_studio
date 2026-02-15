@@ -60,7 +60,7 @@ defmodule JidoStudio.MixProject do
 
   defp package do
     [
-      files: ["lib", "priv/static", "mix.exs", "README.md", "LICENSE"],
+      files: ["lib", "priv/static", "priv/ecto", "mix.exs", "README.md", "LICENSE"],
       maintainers: ["Mike Hostetler"],
       licenses: ["Apache-2.0"],
       links: %{

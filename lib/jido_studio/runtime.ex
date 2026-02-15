@@ -20,10 +20,13 @@ defmodule JidoStudio.Runtime do
 
   @impl true
   def init(opts) do
-    children = [
-      {JidoStudio.TraceBuffer, opts},
-      {JidoStudio.Threads.Manager, opts}
-    ]
+    children =
+      JidoStudio.Persistence.child_specs(opts) ++
+        [
+          {JidoStudio.Ingestor, opts},
+          {JidoStudio.TraceBuffer, opts},
+          {JidoStudio.Threads.Manager, opts}
+        ]
 
     Supervisor.init(children, strategy: :one_for_one)
   end

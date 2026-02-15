@@ -89,7 +89,14 @@ defmodule JidoStudio.ThreadsManagerTest do
       payload: %{
         event: :upsert_message,
         message_id: "external_msg",
-        message: %{id: "external_msg", role: :assistant, content: "external", state: :complete, tool_events: [], at: System.system_time(:millisecond)}
+        message: %{
+          id: "external_msg",
+          role: :assistant,
+          content: "external",
+          state: :complete,
+          tool_events: [],
+          at: System.system_time(:millisecond)
+        }
       },
       refs: %{}
     }
@@ -97,7 +104,9 @@ defmodule JidoStudio.ThreadsManagerTest do
     assert {:ok, _thread} = Storage.append_thread(thread_key, [external_entry], expected_rev: rev)
 
     {updated_state, updated_pending_id} = Session.append_user_turn(state, "second")
-    updated_state = Session.resolve_assistant_reply(updated_state, updated_pending_id, "second done")
+
+    updated_state =
+      Session.resolve_assistant_reply(updated_state, updated_pending_id, "second done")
 
     assert :ok = Manager.save_workspace("weather", "instance-c", updated_state)
 

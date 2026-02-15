@@ -4,31 +4,24 @@ defmodule JidoStudio.TracesLive do
 
   import JidoStudio.Components
 
-  alias JidoStudio.Observability
+  alias JidoStudio.Tracing
+
+  @default_range "1h"
+  @default_limit 400
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: :timer.send_interval(2000, self(), :refresh)
+    if connected?(socket), do: :timer.send_interval(2_000, self(), :refresh)
 
     socket =
       socket
       |> assign(:page_title, "Traces")
+      |> assign(:filters, default_filters())
+      |> assign(:traces, [])
+      |> assign(:trace, nil)
+      |> assign(:spans, [])
       |> assign(:events, [])
-      |> assign(:trace_groups, [])
-      |> assign(:filters_active?, false)
-      |> assign(:source_filter, nil)
-      |> assign(:agent_slug_filter, nil)
-      |> assign(:agent_module_filter, nil)
-      |> assign(:agent_id_filter, nil)
-      |> assign(:instance_id_filter, nil)
-      |> assign(:trace_id_filter, nil)
-      |> assign(:span_id_filter, nil)
-      |> assign(:parent_span_id_filter, nil)
-      |> assign(:causation_id_filter, nil)
-      |> assign(:call_id_filter, nil)
-      |> assign(:signal_type_filter, nil)
-      |> assign(:directive_type_filter, nil)
-      |> assign(:trace_page_limit, Observability.trace_page_limit())
+      |> assign(:available_agents, [])
 
     {:ok, socket}
   end
@@ -37,334 +30,381 @@ defmodule JidoStudio.TracesLive do
   def handle_params(params, _uri, socket) do
     filters = parse_filters(params)
 
-    events =
-      load_events(socket.assigns.jido_instance,
-        filters: filters,
-        limit: socket.assigns.trace_page_limit
-      )
+    traces = Tracing.list_traces(filters: filters, limit: @default_limit)
+
+    available_agents =
+      traces
+      |> Enum.map(& &1[:agent_id])
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    socket =
+      socket
+      |> assign(:filters, filters)
+      |> assign(:traces, traces)
+      |> assign(:available_agents, available_agents)
+
+    case socket.assigns.live_action do
+      :show ->
+        trace_id = decode_segment(params["trace_id"])
+
+        case Tracing.get_trace(trace_id) do
+          {:ok, trace} ->
+            spans = Tracing.list_trace_spans(trace_id, limit: 5_000)
+            events = Tracing.list_trace_events(trace_id, order: :asc, limit: 1_500)
+
+            {:noreply,
+             socket
+             |> assign(:trace, trace)
+             |> assign(:spans, spans)
+             |> assign(:events, events)}
+
+          _ ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "Trace not found")
+             |> assign(:trace, nil)
+             |> assign(:spans, [])
+             |> assign(:events, [])}
+        end
+
+      _ ->
+        {:noreply,
+         socket
+         |> assign(:trace, nil)
+         |> assign(:spans, [])
+         |> assign(:events, [])}
+    end
+  end
+
+  @impl true
+  def handle_event("filters_change", %{"filters" => params}, socket) do
+    filters =
+      socket.assigns.filters
+      |> Map.merge(normalize_filter_params(params))
+      |> Map.update(:range, @default_range, fn value -> value || @default_range end)
 
     {:noreply,
-     socket
-     |> assign(:source_filter, filters[:source])
-     |> assign(:agent_slug_filter, filters[:agent_slug])
-     |> assign(:agent_module_filter, filters[:agent_module])
-     |> assign(:agent_id_filter, filters[:agent_id])
-     |> assign(:instance_id_filter, filters[:instance_id])
-     |> assign(:trace_id_filter, filters[:trace_id])
-     |> assign(:span_id_filter, filters[:span_id])
-     |> assign(:parent_span_id_filter, filters[:parent_span_id])
-     |> assign(:causation_id_filter, filters[:causation_id])
-     |> assign(:call_id_filter, filters[:call_id])
-     |> assign(:signal_type_filter, filters[:signal_type])
-     |> assign(:directive_type_filter, filters[:directive_type])
-     |> assign(:filters_active?, filters_active?(filters))
-     |> assign(:events, events)
-     |> assign(:trace_groups, trace_groups(events))}
+     push_patch(socket,
+       to: list_path(socket.assigns.prefix, filters)
+     )}
   end
 
   @impl true
   def handle_info(:refresh, socket) do
-    filters = current_filters(socket)
+    filters = socket.assigns.filters
 
-    events =
-      load_events(socket.assigns.jido_instance,
-        filters: filters,
-        limit: socket.assigns.trace_page_limit
+    traces = Tracing.list_traces(filters: filters, limit: @default_limit)
+
+    socket =
+      socket
+      |> assign(:traces, traces)
+      |> assign(
+        :available_agents,
+        traces
+        |> Enum.map(& &1[:agent_id])
+        |> Enum.filter(&is_binary/1)
+        |> Enum.uniq()
+        |> Enum.sort()
       )
 
-    {:noreply,
-     socket
-     |> assign(:events, events)
-     |> assign(:trace_groups, trace_groups(events))}
-  end
+    socket =
+      if socket.assigns.live_action == :show and socket.assigns.trace do
+        trace_id = socket.assigns.trace[:trace_id] || socket.assigns.trace[:id]
 
-  defp load_events(jido_instance, opts) do
-    filters = Keyword.get(opts, :filters, %{})
-    limit = Keyword.get(opts, :limit, Observability.trace_page_limit())
+        trace =
+          case Tracing.get_trace(trace_id) do
+            {:ok, t} -> t
+            _ -> socket.assigns.trace
+          end
 
-    Observability.query_events(jido_instance, filters: filters, limit: limit)
-    |> Enum.filter(&matches_agent_filter?(&1, filters))
-  rescue
-    _ -> []
-  end
-
-  defp matches_agent_filter?(_event, %{agent_slug: nil, agent_module: nil}), do: true
-
-  defp matches_agent_filter?(event, filters) do
-    slug = filters[:agent_slug]
-    module = filters[:agent_module]
-
-    candidate_values = event_candidate_values(event)
-
-    matches_slug? =
-      case slug do
-        nil -> true
-        _ -> slug in candidate_values
+        socket
+        |> assign(:trace, trace)
+        |> assign(:spans, Tracing.list_trace_spans(trace_id, limit: 5_000))
+        |> assign(:events, Tracing.list_trace_events(trace_id, order: :asc, limit: 1_500))
+      else
+        socket
       end
 
-    matches_module? =
-      case module do
-        nil -> true
-        _ -> module in candidate_values
-      end
-
-    matches_slug? and matches_module?
-  end
-
-  defp event_candidate_values(event) do
-    metadata = event[:metadata] || %{}
-
-    metadata
-    |> Map.values()
-    |> Enum.flat_map(&metadata_value_candidates/1)
-    |> Enum.uniq()
-  end
-
-  defp metadata_value_candidates(%{__struct__: mod} = struct) when is_atom(mod) do
-    [inspect(mod), module_slug(mod), inspect(struct)]
-  end
-
-  defp metadata_value_candidates(mod) when is_atom(mod), do: [inspect(mod), module_slug(mod)]
-  defp metadata_value_candidates(value) when is_binary(value), do: [value]
-  defp metadata_value_candidates(value) when is_integer(value), do: [Integer.to_string(value)]
-  defp metadata_value_candidates(_), do: []
-
-  defp module_slug(module) do
-    module
-    |> Atom.to_string()
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.url_encode64(padding: false)
-    |> binary_part(0, 8)
-  end
-
-  defp trace_groups(events) do
-    events
-    |> Enum.filter(&(is_binary(&1[:trace_id]) and &1[:trace_id] != ""))
-    |> Enum.group_by(& &1.trace_id)
-    |> Enum.map(fn {trace_id, trace_events} ->
-      sorted = Enum.sort_by(trace_events, &(&1[:timestamp_ms] || 0), :asc)
-      first = List.first(sorted)
-      last = List.last(sorted)
-
-      %{
-        trace_id: trace_id,
-        events: length(sorted),
-        start_at: first && first[:timestamp_ms],
-        end_at: last && last[:timestamp_ms],
-        duration_ms:
-          max(((last && last[:timestamp_ms]) || 0) - ((first && first[:timestamp_ms]) || 0), 0),
-        start_count: Enum.count(sorted, &(&1[:type] == :start)),
-        stop_count: Enum.count(sorted, &(&1[:type] == :stop)),
-        exception_count: Enum.count(sorted, &(&1[:type] == :exception))
-      }
-    end)
-    |> Enum.sort_by(& &1.start_at, :desc)
-  end
-
-  defp format_event_name(event_prefix) when is_list(event_prefix),
-    do: Enum.join(event_prefix, ".")
-
-  defp format_event_name(value) when is_binary(value), do: value
-  defp format_event_name(value), do: inspect(value)
-
-  defp format_timestamp(ts) when is_integer(ts) do
-    ts
-    |> DateTime.from_unix!(:millisecond)
-    |> Calendar.strftime("%H:%M:%S.%f")
-    |> String.slice(0, 12)
-  end
-
-  defp format_timestamp(_), do: "—"
-
-  defp event_badge_variant(:exception), do: :error
-  defp event_badge_variant(:stop), do: :success
-  defp event_badge_variant(:start), do: :info
-  defp event_badge_variant(_), do: :default
-
-  defp source_badge_variant(:telemetry), do: :info
-  defp source_badge_variant(:agent_debug), do: :warning
-  defp source_badge_variant(_), do: :default
-
-  defp blank_to_nil(nil), do: nil
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(value), do: value
-
-  defp parse_filters(params) do
-    %{
-      source: parse_source(blank_to_nil(params["source"])),
-      agent_slug: blank_to_nil(params["agent_slug"]),
-      agent_module: blank_to_nil(params["agent_module"]),
-      agent_id: blank_to_nil(params["agent_id"]),
-      instance_id: blank_to_nil(params["instance_id"]),
-      trace_id: blank_to_nil(params["trace_id"]),
-      span_id: blank_to_nil(params["span_id"]),
-      parent_span_id: blank_to_nil(params["parent_span_id"]),
-      causation_id: blank_to_nil(params["causation_id"]),
-      call_id: blank_to_nil(params["call_id"]),
-      signal_type: blank_to_nil(params["signal_type"]),
-      directive_type: blank_to_nil(params["directive_type"])
-    }
-  end
-
-  defp parse_source(nil), do: nil
-  defp parse_source("telemetry"), do: :telemetry
-  defp parse_source("agent_debug"), do: :agent_debug
-  defp parse_source(_), do: nil
-
-  defp current_filters(socket) do
-    %{
-      source: socket.assigns.source_filter,
-      agent_slug: socket.assigns.agent_slug_filter,
-      agent_module: socket.assigns.agent_module_filter,
-      agent_id: socket.assigns.agent_id_filter,
-      instance_id: socket.assigns.instance_id_filter,
-      trace_id: socket.assigns.trace_id_filter,
-      span_id: socket.assigns.span_id_filter,
-      parent_span_id: socket.assigns.parent_span_id_filter,
-      causation_id: socket.assigns.causation_id_filter,
-      call_id: socket.assigns.call_id_filter,
-      signal_type: socket.assigns.signal_type_filter,
-      directive_type: socket.assigns.directive_type_filter
-    }
-  end
-
-  defp filters_active?(filters) when is_map(filters) do
-    Enum.any?(filters, fn {_k, v} -> not is_nil(v) and v != "" end)
+    {:noreply, socket}
   end
 
   @impl true
-  def render(assigns) do
+  def render(%{live_action: :show} = assigns) do
     ~H"""
     <div class="p-6 space-y-6">
-      <.page_header title="Traces" subtitle="Telemetry + debug events with correlation context">
+      <.page_header title="Trace Detail" subtitle="Span timeline, metadata, and correlation context">
         <:actions>
           <.link
-            :if={@filters_active?}
-            navigate={@prefix <> "/traces"}
+            navigate={list_path(@prefix, @filters)}
             class="inline-flex items-center gap-2 rounded-md border border-js-border px-3 py-1.5 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated transition-colors"
           >
-            Clear Filter
+            Back to Traces
           </.link>
-          <.badge>showing {length(@events)} / {@trace_page_limit}</.badge>
         </:actions>
       </.page_header>
 
-      <div
-        :if={@filters_active?}
-        class="bg-js-info/15 border border-js-border rounded-lg p-3 text-xs text-js-text-muted flex flex-wrap gap-2"
-      >
-        <span :if={@source_filter}>
-          source=<code class="bg-js-bg-elevated px-1 rounded">{@source_filter}</code>
-        </span>
-        <span :if={@agent_slug_filter}>
-          slug=<code class="bg-js-bg-elevated px-1 rounded">{@agent_slug_filter}</code>
-        </span>
-        <span :if={@agent_module_filter}>
-          module=<code class="bg-js-bg-elevated px-1 rounded">{@agent_module_filter}</code>
-        </span>
-        <span :if={@agent_id_filter}>
-          agent=<code class="bg-js-bg-elevated px-1 rounded">{@agent_id_filter}</code>
-        </span>
-        <span :if={@trace_id_filter}>
-          trace=<code class="bg-js-bg-elevated px-1 rounded">{@trace_id_filter}</code>
-        </span>
-        <span :if={@span_id_filter}>
-          span=<code class="bg-js-bg-elevated px-1 rounded">{@span_id_filter}</code>
-        </span>
-        <span :if={@causation_id_filter}>
-          cause=<code class="bg-js-bg-elevated px-1 rounded">{@causation_id_filter}</code>
-        </span>
-        <span :if={@call_id_filter}>
-          call=<code class="bg-js-bg-elevated px-1 rounded">{@call_id_filter}</code>
-        </span>
-      </div>
+      <.card :if={is_nil(@trace)}>
+        <.empty_state title="Trace not found" description="The selected trace is not available." />
+      </.card>
 
-      <.card :if={@events == []}>
+      <%= if @trace do %>
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+          <.card class="lg:col-span-1">
+            <div class="space-y-2 text-xs text-js-text-muted">
+              <div>
+                <span class="text-js-text-subtle">Trace ID:</span>
+                <code>{@trace.trace_id || @trace.id}</code>
+              </div>
+              <div><span class="text-js-text-subtle">Agent:</span> {@trace.agent_id || "—"}</div>
+              <div><span class="text-js-text-subtle">Status:</span> {trace_status(@trace)}</div>
+              <div>
+                <span class="text-js-text-subtle">Started:</span> {format_datetime(@trace.started_at)}
+              </div>
+              <div>
+                <span class="text-js-text-subtle">Ended:</span> {format_datetime(@trace.ended_at)}
+              </div>
+              <div>
+                <span class="text-js-text-subtle">Duration:</span> {format_duration(
+                  @trace.duration_ms
+                )}
+              </div>
+              <div>
+                <span class="text-js-text-subtle">Call ID:</span>
+                <code>{@trace.call_id || "—"}</code>
+              </div>
+              <div>
+                <span class="text-js-text-subtle">Causation ID:</span>
+                <code>{@trace.causation_id || "—"}</code>
+              </div>
+              <div>
+                <span class="text-js-text-subtle">Spans:</span> {@trace.span_count || length(@spans)}
+              </div>
+              <div>
+                <span class="text-js-text-subtle">Events:</span> {@trace.event_count ||
+                  length(@events)}
+              </div>
+            </div>
+          </.card>
+
+          <.card class="lg:col-span-3 p-0 overflow-hidden">
+            <div class="px-3 py-2 border-b border-js-border">
+              <h3 class="text-sm font-medium text-js-text">Timeline</h3>
+              <p class="text-xs text-js-text-muted mt-1">Span hierarchy ordered by start time.</p>
+            </div>
+
+            <div :if={@spans == []} class="p-4">
+              <.empty_state
+                title="No spans"
+                description="No span records were stored for this trace yet."
+              />
+            </div>
+
+            <div :if={@spans != []} class="overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="border-b border-js-border">
+                    <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                      Span
+                    </th>
+                    <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                      Status
+                    </th>
+                    <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                      Offset
+                    </th>
+                    <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                      Duration
+                    </th>
+                    <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                      Span ID
+                    </th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-js-border">
+                  <tr :for={span <- @spans} class="hover:bg-js-bg-elevated/40">
+                    <td class="px-3 py-2 text-xs text-js-text-muted font-mono">
+                      <span style={"padding-left: #{(span.depth || 0) * 16}px"}>
+                        {span.event_name}
+                      </span>
+                    </td>
+                    <td class="px-3 py-2 text-xs">
+                      <.badge variant={span_badge_variant(span.status)}>
+                        {span.status || "running"}
+                      </.badge>
+                    </td>
+                    <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">
+                      {format_duration(span.offset_ms)}
+                    </td>
+                    <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">
+                      {format_duration(span.duration_ms)}
+                    </td>
+                    <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">{span.span_id}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </.card>
+        </div>
+
+        <.card :if={@trace.error}>
+          <h3 class="text-sm font-medium text-js-error mb-2">Error Payload</h3>
+          <pre class="text-xs text-js-text-muted bg-js-bg-elevated border border-js-border rounded-md p-3 whitespace-pre-wrap break-words"><%= inspect(@trace.error_payload || %{}, pretty: true, limit: 80, printable_limit: 20_000) %></pre>
+        </.card>
+
+        <.card>
+          <h3 class="text-sm font-medium text-js-text mb-2">Trace Events</h3>
+          <div :if={@events == []} class="text-xs text-js-text-subtle">No events captured.</div>
+          <div :if={@events != []} class="space-y-2 max-h-[24rem] overflow-y-auto js-scroll">
+            <div
+              :for={event <- @events}
+              class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2.5 py-2"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-[11px] font-mono text-js-text-subtle">
+                  {format_timestamp(event.timestamp_ms)}
+                </span>
+                <.badge variant={event_badge_variant(event.type)}>{event.type || :event}</.badge>
+              </div>
+              <div class="mt-1 text-xs text-js-text font-mono">{event_name(event)}</div>
+            </div>
+          </div>
+        </.card>
+      <% end %>
+    </div>
+    """
+  end
+
+  def render(assigns) do
+    ~H"""
+    <div class="p-6 space-y-6">
+      <.page_header title="Traces" subtitle="Explore trace runs and execution timelines">
+        <:actions>
+          <.badge>showing {length(@traces)} traces</.badge>
+        </:actions>
+      </.page_header>
+
+      <.card>
+        <form phx-change="filters_change" class="grid grid-cols-1 md:grid-cols-5 gap-2">
+          <label class="text-xs text-js-text-muted">
+            Agent
+            <select
+              name="filters[agent]"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            >
+              <option value="">All</option>
+              <option
+                :for={agent <- @available_agents}
+                value={agent}
+                selected={agent == @filters.agent}
+              >
+                {agent}
+              </option>
+            </select>
+          </label>
+
+          <label class="text-xs text-js-text-muted">
+            Status
+            <select
+              name="filters[status]"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            >
+              <option value="all" selected={@filters.status == "all"}>All</option>
+              <option value="running" selected={@filters.status == "running"}>Running</option>
+              <option value="ok" selected={@filters.status == "ok"}>OK</option>
+              <option value="error" selected={@filters.status == "error"}>Error</option>
+            </select>
+          </label>
+
+          <label class="text-xs text-js-text-muted">
+            Time Range
+            <select
+              name="filters[range]"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            >
+              <option value="15m" selected={@filters.range == "15m"}>15m</option>
+              <option value="1h" selected={@filters.range == "1h"}>1h</option>
+              <option value="24h" selected={@filters.range == "24h"}>24h</option>
+              <option value="custom" selected={@filters.range == "custom"}>Custom</option>
+            </select>
+          </label>
+
+          <label class="text-xs text-js-text-muted">
+            From
+            <input
+              type="datetime-local"
+              name="filters[from]"
+              value={@filters.from || ""}
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+
+          <label class="text-xs text-js-text-muted">
+            To
+            <input
+              type="datetime-local"
+              name="filters[to]"
+              value={@filters.to || ""}
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+        </form>
+      </.card>
+
+      <.card :if={@traces == []}>
         <.empty_state
-          title="No trace events yet"
-          description="Trace/debug events will appear here as agents execute. If filtering is active, try clearing the filter."
+          title="No traces"
+          description="No trace runs matched the current filters."
         />
       </.card>
 
-      <.card :if={@trace_groups != []}>
-        <h3 class="text-sm font-medium text-js-text mb-3">Trace Timeline</h3>
-        <div class="space-y-2">
-          <div
-            :for={group <- Enum.take(@trace_groups, 8)}
-            class="rounded-md border border-js-border bg-js-bg-elevated/30 px-3 py-2 text-xs"
-          >
-            <div class="flex items-center justify-between gap-2">
-              <code class="text-js-text">{group.trace_id}</code>
-              <span class="text-js-text-subtle">{group.events} events</span>
-            </div>
-            <div class="mt-1 text-js-text-muted flex flex-wrap gap-x-3 gap-y-1">
-              <span>duration: {group.duration_ms}ms</span>
-              <span>start: {group.start_count}</span>
-              <span>stop: {group.stop_count}</span>
-              <span>exception: {group.exception_count}</span>
-            </div>
-          </div>
-        </div>
-      </.card>
-
-      <.card :if={@events != []} class="p-0">
+      <.card :if={@traces != []} class="p-0 overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full">
             <thead>
               <tr class="border-b border-js-border">
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
-                  Time
+                <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                  Trace ID
                 </th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
-                  Source
-                </th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
-                  Event
-                </th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
-                  Type
-                </th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
+                <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
                   Agent
                 </th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
-                  Trace
+                <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                  Status
                 </th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
-                  Call
+                <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                  Started
                 </th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
-                  Details
+                <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                  Duration
+                </th>
+                <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                  Error?
                 </th>
               </tr>
             </thead>
             <tbody class="divide-y divide-js-border">
-              <tr :for={event <- @events} class="hover:bg-js-bg-elevated transition-colors">
-                <td class="px-3 py-2 text-xs text-js-text-subtle font-mono whitespace-nowrap">
-                  {format_timestamp(event[:timestamp_ms])}
+              <tr :for={trace <- @traces} class="hover:bg-js-bg-elevated/50">
+                <td class="px-3 py-2 text-xs text-js-info font-mono">
+                  <.link navigate={detail_path(@prefix, trace.trace_id || trace.id, @filters)}>
+                    {trace.trace_id || trace.id}
+                  </.link>
                 </td>
+                <td class="px-3 py-2 text-xs text-js-text-muted">{trace.agent_id || "—"}</td>
                 <td class="px-3 py-2 text-xs">
-                  <.badge variant={source_badge_variant(event[:source])}>{event[:source]}</.badge>
-                </td>
-                <td class="px-3 py-2 text-xs text-js-text-muted font-mono">
-                  {format_event_name(event[:event_prefix] || event[:event_name])}
-                </td>
-                <td class="px-3 py-2 text-xs">
-                  <.badge variant={event_badge_variant(event[:type])}>
-                    {to_string(event[:type] || "event")}
+                  <.badge variant={span_badge_variant(trace.status)}>
+                    {trace.status || "running"}
                   </.badge>
                 </td>
                 <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">
-                  {event[:agent_id] || "—"}
+                  {format_datetime(trace.started_at)}
                 </td>
                 <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">
-                  {event[:trace_id] || "—"}
+                  {format_duration(trace.duration_ms)}
                 </td>
-                <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">
-                  {event[:call_id] || "—"}
-                </td>
-                <td class="px-3 py-2 text-xs text-js-text-subtle font-mono max-w-xs truncate">
-                  {inspect(event[:metadata] || %{}, limit: 4)}
+                <td class="px-3 py-2 text-xs text-js-text-subtle">
+                  {if(trace.error, do: "yes", else: "no")}
                 </td>
               </tr>
             </tbody>
@@ -374,4 +414,146 @@ defmodule JidoStudio.TracesLive do
     </div>
     """
   end
+
+  defp default_filters do
+    %{agent: nil, status: "all", range: @default_range, from: nil, to: nil}
+  end
+
+  defp parse_filters(params) when is_map(params) do
+    from_params = normalize_filter_params(params)
+
+    default_filters()
+    |> Map.merge(from_params)
+    |> Map.put(:range, normalize_range(from_params[:range] || @default_range))
+    |> maybe_clear_custom_bounds()
+  end
+
+  defp parse_filters(_), do: default_filters()
+
+  defp normalize_filter_params(params) do
+    source = params["filters"] || params
+
+    %{
+      agent: normalize_optional_string(source["agent"]),
+      status: normalize_status(source["status"]),
+      range: normalize_range(source["range"]),
+      from: normalize_optional_string(source["from"]),
+      to: normalize_optional_string(source["to"])
+    }
+  end
+
+  defp maybe_clear_custom_bounds(%{range: "custom"} = filters), do: filters
+  defp maybe_clear_custom_bounds(filters), do: %{filters | from: nil, to: nil}
+
+  defp normalize_status(nil), do: "all"
+
+  defp normalize_status(value) when is_binary(value) do
+    normalized = String.downcase(String.trim(value))
+    if normalized in ["all", "running", "ok", "error"], do: normalized, else: "all"
+  end
+
+  defp normalize_status(_), do: "all"
+
+  defp normalize_range(nil), do: @default_range
+
+  defp normalize_range(value) when is_binary(value) do
+    normalized = String.downcase(String.trim(value))
+    if normalized in ["15m", "1h", "24h", "custom"], do: normalized, else: @default_range
+  end
+
+  defp normalize_range(_), do: @default_range
+
+  defp list_path(prefix, filters) do
+    params = filter_query_params(filters)
+
+    if map_size(params) == 0 do
+      prefix <> "/traces"
+    else
+      prefix <> "/traces?" <> URI.encode_query(params)
+    end
+  end
+
+  defp detail_path(prefix, trace_id, filters) do
+    base = prefix <> "/traces/" <> URI.encode_www_form(to_string(trace_id))
+    params = filter_query_params(filters)
+
+    if map_size(params) == 0 do
+      base
+    else
+      base <> "?" <> URI.encode_query(params)
+    end
+  end
+
+  defp filter_query_params(filters) do
+    %{}
+    |> maybe_put("agent", filters.agent)
+    |> maybe_put("status", if(filters.status == "all", do: nil, else: filters.status))
+    |> maybe_put("range", if(filters.range == @default_range, do: nil, else: filters.range))
+    |> maybe_put("from", if(filters.range == "custom", do: filters.from, else: nil))
+    |> maybe_put("to", if(filters.range == "custom", do: filters.to, else: nil))
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp decode_segment(value) when is_binary(value), do: URI.decode_www_form(value)
+  defp decode_segment(_), do: ""
+
+  defp event_name(event) when is_map(event) do
+    cond do
+      is_binary(event[:event_name]) -> event[:event_name]
+      is_list(event[:event_prefix]) -> Enum.join(event[:event_prefix], ".")
+      true -> "event"
+    end
+  end
+
+  defp event_name(_), do: "event"
+
+  defp event_badge_variant(:exception), do: :error
+  defp event_badge_variant(:stop), do: :success
+  defp event_badge_variant(:start), do: :info
+  defp event_badge_variant("exception"), do: :error
+  defp event_badge_variant("stop"), do: :success
+  defp event_badge_variant("start"), do: :info
+  defp event_badge_variant(_), do: :default
+
+  defp span_badge_variant("error"), do: :error
+  defp span_badge_variant("ok"), do: :success
+  defp span_badge_variant("running"), do: :info
+  defp span_badge_variant(:error), do: :error
+  defp span_badge_variant(:ok), do: :success
+  defp span_badge_variant(:running), do: :info
+  defp span_badge_variant(_), do: :default
+
+  defp trace_status(trace) when is_map(trace) do
+    trace[:status] || "running"
+  end
+
+  defp format_datetime(ts) when is_integer(ts) and ts > 0 do
+    ts
+    |> DateTime.from_unix!(:millisecond)
+    |> Calendar.strftime("%Y-%m-%d %H:%M:%S")
+  end
+
+  defp format_datetime(_), do: "—"
+
+  defp format_timestamp(ts) when is_integer(ts) and ts > 0 do
+    ts
+    |> DateTime.from_unix!(:millisecond)
+    |> Calendar.strftime("%H:%M:%S.%f")
+    |> String.slice(0, 12)
+  end
+
+  defp format_timestamp(_), do: "—"
+
+  defp format_duration(ms) when is_integer(ms) and ms >= 0, do: "#{ms}ms"
+  defp format_duration(_), do: "—"
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    normalized = String.trim(value)
+    if normalized == "", do: nil, else: normalized
+  end
+
+  defp normalize_optional_string(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_optional_string(_), do: nil
 end

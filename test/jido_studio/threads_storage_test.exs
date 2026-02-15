@@ -43,8 +43,38 @@ defmodule JidoStudio.ThreadsStorageTest do
   test "thread append/load keeps order and detects conflicts", %{table: _table} do
     thread_key = Storage.thread_key("weather", "inst-1", "thread-1")
 
-    entry_1 = %Entry{id: nil, seq: 0, at: 0, kind: :message, payload: %{event: :upsert_message, message_id: "m1", message: %{id: "m1", role: :user, content: "hi", state: :complete, tool_events: [], at: 1}}, refs: %{}}
-    entry_2 = %Entry{id: nil, seq: 0, at: 0, kind: :message, payload: %{event: :upsert_message, message_id: "m2", message: %{id: "m2", role: :assistant, content: "hello", state: :complete, tool_events: [], at: 2}}, refs: %{}}
+    entry_1 = %Entry{
+      id: nil,
+      seq: 0,
+      at: 0,
+      kind: :message,
+      payload: %{
+        event: :upsert_message,
+        message_id: "m1",
+        message: %{id: "m1", role: :user, content: "hi", state: :complete, tool_events: [], at: 1}
+      },
+      refs: %{}
+    }
+
+    entry_2 = %Entry{
+      id: nil,
+      seq: 0,
+      at: 0,
+      kind: :message,
+      payload: %{
+        event: :upsert_message,
+        message_id: "m2",
+        message: %{
+          id: "m2",
+          role: :assistant,
+          content: "hello",
+          state: :complete,
+          tool_events: [],
+          at: 2
+        }
+      },
+      refs: %{}
+    }
 
     assert {:ok, thread} = Storage.append_thread(thread_key, [entry_1], expected_rev: 0)
     assert thread.rev == 1

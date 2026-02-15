@@ -20,7 +20,8 @@ defmodule JidoStudio.Threads.Manager do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  @spec load_workspace(String.t(), String.t(), keyword()) :: {:ok, workspace_payload()} | {:error, term()}
+  @spec load_workspace(String.t(), String.t(), keyword()) ::
+          {:ok, workspace_payload()} | {:error, term()}
   def load_workspace(agent_slug, instance_id, opts \\ []) do
     with {:ok, _pid} <- ensure_started() do
       safe_call(
@@ -82,12 +83,22 @@ defmodule JidoStudio.Threads.Manager do
       case Storage.get_workspace_checkpoint(agent_slug, instance_id, storage_opts) do
         {:ok, %{} = checkpoint} ->
           decoded = Codec.decode_workspace_checkpoint(checkpoint)
-          {messages_by_thread, threads} = load_thread_messages(agent_slug, instance_id, decoded, storage_opts)
+
+          {messages_by_thread, threads} =
+            load_thread_messages(agent_slug, instance_id, decoded, storage_opts)
+
           chat_state = Codec.workspace_from_checkpoint(decoded, messages_by_thread)
 
           {:ok,
-           Codec.workspace_payload(decoded, chat_state, %{agent_slug: agent_slug, instance_id: instance_id})
-           |> Map.put(:chat_state, %{chat_state | threads: threads, messages_by_thread: messages_by_thread})}
+           Codec.workspace_payload(decoded, chat_state, %{
+             agent_slug: agent_slug,
+             instance_id: instance_id
+           })
+           |> Map.put(:chat_state, %{
+             chat_state
+             | threads: threads,
+               messages_by_thread: messages_by_thread
+           })}
 
         :not_found ->
           {:ok, Codec.empty_workspace_payload()}
@@ -120,7 +131,8 @@ defmodule JidoStudio.Threads.Manager do
 
       with {:ok, updated_records} <-
              sync_threads(agent_slug, instance_id, state, existing_records, storage_opts),
-           :ok <- prune_deleted_threads(agent_slug, instance_id, state, existing_records, storage_opts),
+           :ok <-
+             prune_deleted_threads(agent_slug, instance_id, state, existing_records, storage_opts),
            :ok <-
              persist_workspace_checkpoint(
                agent_slug,
@@ -191,7 +203,11 @@ defmodule JidoStudio.Threads.Manager do
     else
       expected_rev = existing_record.journal_rev
 
-      case Storage.append_thread(thread_key, entries, Keyword.put(storage_opts, :expected_rev, expected_rev)) do
+      case Storage.append_thread(
+             thread_key,
+             entries,
+             Keyword.put(storage_opts, :expected_rev, expected_rev)
+           ) do
         {:ok, thread} ->
           {:ok,
            %{
@@ -273,7 +289,11 @@ defmodule JidoStudio.Threads.Manager do
 
     with {:ok, index} <- Storage.load_workspace_index(storage_opts) do
       items =
-        Map.put(index.items, workspace_id, %{agent_slug: agent_slug, instance_id: instance_id, updated_at: now_ms()})
+        Map.put(index.items, workspace_id, %{
+          agent_slug: agent_slug,
+          instance_id: instance_id,
+          updated_at: now_ms()
+        })
 
       Storage.put_workspace_index(%{index | items: items, updated_at: now_ms()}, storage_opts)
     end
@@ -384,7 +404,11 @@ defmodule JidoStudio.Threads.Manager do
     }
   end
 
-  defp normalize_chat_state(%{threads: threads, active_thread_id: active_thread_id, messages_by_thread: by_thread})
+  defp normalize_chat_state(%{
+         threads: threads,
+         active_thread_id: active_thread_id,
+         messages_by_thread: by_thread
+       })
        when is_list(threads) and is_map(by_thread) do
     %{threads: threads, active_thread_id: active_thread_id, messages_by_thread: by_thread}
   end

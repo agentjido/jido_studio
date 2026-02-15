@@ -56,16 +56,30 @@ defmodule JidoStudio.Threads.Codec do
   def decode_workspace_checkpoint(%{} = checkpoint) do
     %{
       schema_version:
-        normalize_non_neg_integer(Map.get(checkpoint, :schema_version) || Map.get(checkpoint, "schema_version")),
+        normalize_non_neg_integer(
+          Map.get(checkpoint, :schema_version) || Map.get(checkpoint, "schema_version")
+        ),
       active_thread_id:
         normalize_optional_binary(
           Map.get(checkpoint, :active_thread_id) || Map.get(checkpoint, "active_thread_id")
         ),
       draft_message:
-        normalize_optional_binary(Map.get(checkpoint, :draft_message) || Map.get(checkpoint, "draft_message")),
-      updated_at: normalize_integer(Map.get(checkpoint, :updated_at) || Map.get(checkpoint, "updated_at"), now_ms()),
-      instance_binding: normalize_map(Map.get(checkpoint, :instance_binding) || Map.get(checkpoint, "instance_binding") || %{}),
-      thread_contexts: normalize_map(Map.get(checkpoint, :thread_contexts) || Map.get(checkpoint, "thread_contexts") || %{}),
+        normalize_optional_binary(
+          Map.get(checkpoint, :draft_message) || Map.get(checkpoint, "draft_message")
+        ),
+      updated_at:
+        normalize_integer(
+          Map.get(checkpoint, :updated_at) || Map.get(checkpoint, "updated_at"),
+          now_ms()
+        ),
+      instance_binding:
+        normalize_map(
+          Map.get(checkpoint, :instance_binding) || Map.get(checkpoint, "instance_binding") || %{}
+        ),
+      thread_contexts:
+        normalize_map(
+          Map.get(checkpoint, :thread_contexts) || Map.get(checkpoint, "thread_contexts") || %{}
+        ),
       threads:
         normalize_thread_records(
           Map.get(checkpoint, :threads) || Map.get(checkpoint, "threads") || []
@@ -93,13 +107,13 @@ defmodule JidoStudio.Threads.Codec do
       hashes = Map.put(hashes, message_id, hash)
 
       if Map.get(known_hashes, message_id) != hash do
-          payload = %{
-            event: :upsert_message,
-            message_id: message_id,
-            message: normalized,
-            hash: hash,
-            persisted_at: now_ms()
-          }
+        payload = %{
+          event: :upsert_message,
+          message_id: message_id,
+          message: normalized,
+          hash: hash,
+          persisted_at: now_ms()
+        }
 
         entry = %Entry{id: nil, seq: 0, at: now_ms(), kind: :message, payload: payload, refs: %{}}
         {[entry | entries], hashes}
@@ -207,7 +221,11 @@ defmodule JidoStudio.Threads.Codec do
     end
   end
 
-  defp normalize_chat_state(%{threads: threads, active_thread_id: active_thread_id, messages_by_thread: by_thread})
+  defp normalize_chat_state(%{
+         threads: threads,
+         active_thread_id: active_thread_id,
+         messages_by_thread: by_thread
+       })
        when is_list(threads) and is_map(by_thread) do
     %{
       threads: normalize_thread_records(threads),
@@ -224,14 +242,27 @@ defmodule JidoStudio.Threads.Codec do
     |> Enum.map(fn thread ->
       %{
         id: normalize_optional_binary(Map.get(thread, :id) || Map.get(thread, "id") || ""),
-        title: normalize_optional_binary(Map.get(thread, :title) || Map.get(thread, "title") || "New Chat"),
+        title:
+          normalize_optional_binary(
+            Map.get(thread, :title) || Map.get(thread, "title") || "New Chat"
+          ),
         message_count:
-          normalize_non_neg_integer(Map.get(thread, :message_count) || Map.get(thread, "message_count")),
-        updated_at: normalize_integer(Map.get(thread, :updated_at) || Map.get(thread, "updated_at"), now_ms()),
+          normalize_non_neg_integer(
+            Map.get(thread, :message_count) || Map.get(thread, "message_count")
+          ),
+        updated_at:
+          normalize_integer(
+            Map.get(thread, :updated_at) || Map.get(thread, "updated_at"),
+            now_ms()
+          ),
         journal_rev:
-          normalize_non_neg_integer(Map.get(thread, :journal_rev) || Map.get(thread, "journal_rev")),
+          normalize_non_neg_integer(
+            Map.get(thread, :journal_rev) || Map.get(thread, "journal_rev")
+          ),
         message_hashes:
-          normalize_hashes(Map.get(thread, :message_hashes) || Map.get(thread, "message_hashes") || %{})
+          normalize_hashes(
+            Map.get(thread, :message_hashes) || Map.get(thread, "message_hashes") || %{}
+          )
       }
     end)
     |> Enum.filter(&(is_binary(&1.id) and &1.id != ""))
@@ -247,7 +278,8 @@ defmodule JidoStudio.Threads.Codec do
     end
   end
 
-  defp normalize_active_thread_id(active_thread_id, messages_by_thread) when is_binary(active_thread_id) do
+  defp normalize_active_thread_id(active_thread_id, messages_by_thread)
+       when is_binary(active_thread_id) do
     if Map.has_key?(messages_by_thread, active_thread_id) do
       active_thread_id
     else
@@ -255,15 +287,22 @@ defmodule JidoStudio.Threads.Codec do
     end
   end
 
-  defp normalize_active_thread_id(_, messages_by_thread), do: normalize_active_thread_id(nil, messages_by_thread)
+  defp normalize_active_thread_id(_, messages_by_thread),
+    do: normalize_active_thread_id(nil, messages_by_thread)
 
   defp normalize_message(message) when is_map(message) do
     %{
       id:
-        normalize_optional_binary(Map.get(message, :id) || Map.get(message, "id") || generated_message_id()),
+        normalize_optional_binary(
+          Map.get(message, :id) || Map.get(message, "id") || generated_message_id()
+        ),
       role: normalize_role(Map.get(message, :role) || Map.get(message, "role")),
-      content: normalize_optional_binary(Map.get(message, :content) || Map.get(message, "content")),
-      tool_events: normalize_tool_events(Map.get(message, :tool_events) || Map.get(message, "tool_events") || []),
+      content:
+        normalize_optional_binary(Map.get(message, :content) || Map.get(message, "content")),
+      tool_events:
+        normalize_tool_events(
+          Map.get(message, :tool_events) || Map.get(message, "tool_events") || []
+        ),
       state: normalize_message_state(Map.get(message, :state) || Map.get(message, "state")),
       at: normalize_integer(Map.get(message, :at) || Map.get(message, "at"), now_ms())
     }

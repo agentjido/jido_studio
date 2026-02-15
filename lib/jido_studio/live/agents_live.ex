@@ -63,6 +63,8 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:starting_instance?, false)
       |> assign(:trace_preview_limit, Observability.trace_preview_limit())
       |> assign(:trace_include_agent_debug?, Observability.trace_include_agent_debug?())
+      |> assign(:live_event_query, "")
+      |> assign(:live_event_limit, 200)
       |> assign(:instance_observability_events, [])
       |> assign(:instance_debug_events, [])
       |> assign(:instance_telemetry_events, [])
@@ -203,6 +205,11 @@ defmodule JidoStudio.AgentsLive do
     error ->
       {:noreply,
        put_flash(socket, :error, "Failed to toggle debug mode: #{Exception.message(error)}")}
+  end
+
+  @impl true
+  def handle_event("update_live_event_query", %{"query" => query}, socket) do
+    {:noreply, assign(socket, :live_event_query, String.trim(query || ""))}
   end
 
   @impl true
@@ -651,7 +658,9 @@ defmodule JidoStudio.AgentsLive do
           )
 
         start_form_schema = presenter_start_form_schema(presenter, agent)
-        traces_path = traces_path(socket.assigns.prefix, agent, active_instance_id, active_instance_id)
+
+        traces_path =
+          traces_path(socket.assigns.prefix, agent, active_instance_id, active_instance_id)
 
         view_model =
           presenter_view_model(
@@ -879,6 +888,7 @@ defmodule JidoStudio.AgentsLive do
       when not is_nil(agent) and action == :show and not is_nil(active_instance_id) do
     workbench_tab = assigns.workbench_tab || :chat
     summary_visible? = workbench_tab != :instance
+
     context_sections =
       thread_context_sections(
         assigns.sections_by_tab,
@@ -886,8 +896,16 @@ defmodule JidoStudio.AgentsLive do
         assigns.chat_state.active_thread_id,
         is_pid(assigns.active_instance_pid)
       )
+
     thread_scope_id = active_strategy_thread_id(assigns.runtime_status)
-    thread_events = thread_events_for_display(assigns.instance_observability_events, thread_scope_id)
+
+    thread_events =
+      thread_events_for_display(
+        assigns.instance_observability_events,
+        thread_scope_id,
+        assigns.live_event_query,
+        assigns.live_event_limit
+      )
 
     assigns =
       assigns
@@ -908,7 +926,12 @@ defmodule JidoStudio.AgentsLive do
       )
       |> assign(
         :instance_links,
-        instance_links(assigns.prefix, agent, assigns.running_instances, assigns.active_instance_id)
+        instance_links(
+          assigns.prefix,
+          agent,
+          assigns.running_instances,
+          assigns.active_instance_id
+        )
       )
       |> assign(:summary_meta, summary_meta(assigns.runtime_status, assigns.ui_model))
 
@@ -1032,6 +1055,15 @@ defmodule JidoStudio.AgentsLive do
                   </.link>
                 </div>
                 <div class="p-3 overflow-y-auto overflow-x-hidden js-scroll space-y-2.5 flex-1 min-h-0">
+                  <form phx-change="update_live_event_query" class="mb-2">
+                    <input
+                      type="text"
+                      name="query"
+                      value={@live_event_query}
+                      placeholder="Search events"
+                      class="w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text focus:outline-none focus:ring-2 focus:ring-js-ring"
+                    />
+                  </form>
                   <p :if={@thread_scope_id} class="text-xs text-js-text-subtle">
                     Thread ID: <span class="font-mono text-js-text">{@thread_scope_id}</span>
                   </p>
@@ -1049,7 +1081,9 @@ defmodule JidoStudio.AgentsLive do
                         <span class="text-[11px] font-mono text-js-text-subtle">
                           {format_event_timestamp(event[:timestamp_ms])}
                         </span>
-                        <.badge variant={if(event[:source] == :agent_debug, do: :warning, else: :info)}>
+                        <.badge variant={
+                          if(event[:source] == :agent_debug, do: :warning, else: :info)
+                        }>
                           {event[:source] || :telemetry}
                         </.badge>
                       </div>
@@ -1703,7 +1737,8 @@ defmodule JidoStudio.AgentsLive do
       end)
 
     if is_binary(active_instance_id) and not Enum.any?(links, &(&1.id == active_instance_id)) do
-      links ++ [%{id: active_instance_id, path: agent_instance_path(prefix, agent, active_instance_id)}]
+      links ++
+        [%{id: active_instance_id, path: agent_instance_path(prefix, agent, active_instance_id)}]
     else
       links
     end
@@ -2158,7 +2193,8 @@ defmodule JidoStudio.AgentsLive do
   end
 
   defp schedule_workspace_persist(socket, reason, delay_ms \\ 0) do
-    has_workspace? = is_binary(socket.assigns[:active_instance_id]) and not is_nil(socket.assigns[:agent])
+    has_workspace? =
+      is_binary(socket.assigns[:active_instance_id]) and not is_nil(socket.assigns[:agent])
 
     cond do
       socket.assigns[:thread_persistence?] != true ->
@@ -2282,13 +2318,15 @@ defmodule JidoStudio.AgentsLive do
   defp snapshot_status(_), do: :unknown
 
   defp detail_value(details, key, default \\ nil)
+
   defp detail_value(details, key, default) when is_map(details) and is_atom(key) do
     Map.get(details, key, Map.get(details, Atom.to_string(key), default))
   end
 
   defp detail_value(_, _, default), do: default
 
-  defp ensure_workspace_chat_state(%{threads: []} = _state), do: ChatSession.with_initial_thread("New Chat")
+  defp ensure_workspace_chat_state(%{threads: []} = _state),
+    do: ChatSession.with_initial_thread("New Chat")
 
   defp ensure_workspace_chat_state(%{} = state) do
     %{
@@ -2382,8 +2420,9 @@ defmodule JidoStudio.AgentsLive do
 
   defp parse_workbench_tab(panel, legacy_view \\ nil)
 
-  defp parse_workbench_tab(panel, _legacy_view) when panel in [:chat, :thread_context, :thread_events, :instance],
-    do: panel
+  defp parse_workbench_tab(panel, _legacy_view)
+       when panel in [:chat, :thread_context, :thread_events, :instance],
+       do: panel
 
   defp parse_workbench_tab("chat", _legacy_view), do: :chat
   defp parse_workbench_tab("thread_context", _legacy_view), do: :thread_context
@@ -2423,12 +2462,19 @@ defmodule JidoStudio.AgentsLive do
   defp tab_query_value(tab) when is_binary(tab) and tab != "", do: tab
   defp tab_query_value(_), do: nil
 
-  defp thread_context_sections(sections_by_tab, persisted_contexts, active_thread_id, instance_online?)
+  defp thread_context_sections(
+         sections_by_tab,
+         persisted_contexts,
+         active_thread_id,
+         instance_online?
+       )
        when is_map(sections_by_tab) do
     context = Map.get(sections_by_tab, :context, [])
     reasoning = Map.get(sections_by_tab, :reasoning, [])
     overview = Map.get(sections_by_tab, :overview, [])
-    persisted = persisted_thread_context_sections(persisted_contexts, active_thread_id, instance_online?)
+
+    persisted =
+      persisted_thread_context_sections(persisted_contexts, active_thread_id, instance_online?)
 
     sections = context ++ reasoning ++ overview ++ persisted
 
@@ -2445,7 +2491,11 @@ defmodule JidoStudio.AgentsLive do
          %{} = snapshot <- Map.get(contexts, active_thread_id) do
       summary_rows =
         [
-          {"Source", if(instance_online?, do: "Persisted snapshot (live available)", else: "Persisted snapshot (instance offline)")},
+          {"Source",
+           if(instance_online?,
+             do: "Persisted snapshot (live available)",
+             else: "Persisted snapshot (instance offline)"
+           )},
           {"Captured At", format_event_timestamp(Map.get(snapshot, :captured_at))},
           {"Status", to_string(Map.get(snapshot, :status, "unknown"))},
           {"Strategy Thread", to_string(Map.get(snapshot, :strategy_thread_id, "n/a"))},
@@ -2490,7 +2540,7 @@ defmodule JidoStudio.AgentsLive do
 
   defp active_strategy_thread_id(_), do: nil
 
-  defp thread_events_for_display(events, thread_id) when is_list(events) do
+  defp thread_events_for_display(events, thread_id, query, limit) when is_list(events) do
     filtered =
       if is_binary(thread_id) and thread_id != "" do
         Enum.filter(events, fn event ->
@@ -2510,10 +2560,11 @@ defmodule JidoStudio.AgentsLive do
       end
 
     selected
-    |> Enum.take(60)
+    |> filter_events_by_query(query)
+    |> Enum.take(normalize_thread_event_limit(limit))
   end
 
-  defp thread_events_for_display(_, _), do: []
+  defp thread_events_for_display(_, _, _, _), do: []
 
   defp event_thread_id(event) when is_map(event) do
     metadata = Map.get(event, :metadata, %{})
@@ -2521,6 +2572,47 @@ defmodule JidoStudio.AgentsLive do
   end
 
   defp event_thread_id(_), do: nil
+
+  defp filter_events_by_query(events, query) when is_list(events) do
+    case normalize_optional_query(query) do
+      nil ->
+        events
+
+      normalized ->
+        Enum.filter(events, fn event ->
+          haystack =
+            [
+              format_event_name(event),
+              inspect(event[:metadata] || %{}, limit: 5),
+              to_string(event[:type] || ""),
+              to_string(event[:source] || ""),
+              to_string(event[:trace_id] || ""),
+              to_string(event[:span_id] || "")
+            ]
+            |> Enum.join(" ")
+            |> String.downcase()
+
+          String.contains?(haystack, normalized)
+        end)
+    end
+  end
+
+  defp filter_events_by_query(events, _), do: events
+
+  defp normalize_optional_query(query) when is_binary(query) do
+    query
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp normalize_optional_query(_), do: nil
+
+  defp normalize_thread_event_limit(value) when is_integer(value) and value > 0, do: value
+  defp normalize_thread_event_limit(_), do: 200
 
   defp ordered_detail_tabs(tabs) when is_list(tabs) do
     desired = [:overview, :reasoning, :context, :weather, :model, :memory, :tracing]
@@ -2540,7 +2632,9 @@ defmodule JidoStudio.AgentsLive do
   defp ordered_detail_tabs(_), do: [%{id: :overview, label: "Overview"}]
 
   defp summary_meta(runtime_status, model_label) do
-    details = runtime_status && runtime_status.snapshot && runtime_status.snapshot.details || %{}
+    details =
+      (runtime_status && runtime_status.snapshot && runtime_status.snapshot.details) || %{}
+
     status = runtime_status && runtime_status.snapshot && runtime_status.snapshot.status
 
     [

@@ -90,12 +90,22 @@ defmodule JidoStudio.Router do
           Phoenix.LiveView.Router.live("/agents", JidoStudio.AgentsLive, :index)
           Phoenix.LiveView.Router.live("/agents/:slug/:instance_id", JidoStudio.AgentsLive, :show)
           Phoenix.LiveView.Router.live("/agents/:slug", JidoStudio.AgentsLive, :show)
+          Phoenix.LiveView.Router.live("/registry", JidoStudio.RegistryLive, :index)
+          Phoenix.LiveView.Router.live("/threads", JidoStudio.ThreadsLive, :index)
+
+          Phoenix.LiveView.Router.live(
+            "/threads/:agent_slug/:instance_id/:thread_id",
+            JidoStudio.ThreadsLive,
+            :show
+          )
+
           Phoenix.LiveView.Router.live("/actions", JidoStudio.ActionsLive, :index)
           Phoenix.LiveView.Router.live("/actions/:id", JidoStudio.ActionsLive, :show)
           Phoenix.LiveView.Router.live("/workflows", JidoStudio.WorkflowsLive, :index)
           Phoenix.LiveView.Router.live("/workflows/:id", JidoStudio.WorkflowsLive, :show)
           Phoenix.LiveView.Router.live("/signals", JidoStudio.SignalsLive, :index)
           Phoenix.LiveView.Router.live("/traces", JidoStudio.TracesLive, :index)
+          Phoenix.LiveView.Router.live("/traces/:trace_id", JidoStudio.TracesLive, :show)
           Phoenix.LiveView.Router.live("/settings", JidoStudio.SettingsLive, :index)
         end
       end
