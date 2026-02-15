@@ -2,6 +2,7 @@ defmodule JidoStudio.TraceBuffer do
   @moduledoc false
   use GenServer
 
+  alias JidoStudio.Ingestor
   alias JidoStudio.TraceCatalog
 
   @default_size 5000
@@ -185,6 +186,7 @@ defmodule JidoStudio.TraceBuffer do
       )
 
     :ets.insert(@table, {counter, normalized})
+    Ingestor.ingest_event(normalized)
 
     if counter > state.size do
       case :ets.first(@table) do

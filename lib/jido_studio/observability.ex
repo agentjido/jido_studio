@@ -4,7 +4,7 @@ defmodule JidoStudio.Observability do
   alias JidoStudio.AgentRegistry
   alias JidoStudio.TraceBuffer
 
-  @default_trace_preview_limit 30
+  @default_trace_preview_limit 200
   @default_trace_page_limit 300
 
   @spec trace_preview(String.t(), pid() | nil, keyword()) :: map()

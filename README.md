@@ -32,6 +32,85 @@ end
 
 Start your server and visit `/studio`.
 
+## Setup
+
+Use this sequence for a clean first-time setup.
+
+### 1. Install the dependency
+
+```elixir
+def deps do
+  [
+    {:jido_studio, "~> 0.1.0"}
+  ]
+end
+```
+
+Then fetch dependencies:
+
+```bash
+mix deps.get
+```
+
+### 2. Configure Studio
+
+Set your Jido supervisor module so Studio can show running instances (without this, Studio still shows discovered modules only):
+
+```elixir
+# config/config.exs
+config :jido_studio,
+  jido_instance: MyApp.Jido
+```
+
+Default observability persistence is ETS and needs no extra setup:
+
+```elixir
+config :jido_studio, :persistence,
+  adapter: JidoStudio.Persistence.ETS,
+  opts: []
+```
+
+### 3. Mount in the Phoenix router
+
+```elixir
+# lib/my_app_web/router.ex
+import JidoStudio.Router
+
+scope "/" do
+  pipe_through [:browser, :require_authenticated_user]
+  jido_studio "/studio"
+end
+```
+
+### 4. (Optional) Use Postgres persistence for traces/spans
+
+Switch the persistence adapter:
+
+```elixir
+config :jido_studio, :persistence,
+  adapter: JidoStudio.Persistence.Ecto,
+  opts: [repo: MyApp.Repo, prefix: "public"]
+```
+
+Copy the provided migration template into your host app and run:
+
+```bash
+mix ecto.migrate
+```
+
+Template:
+
+- `priv/ecto/migrations/20260215000000_create_jido_studio_persistence_tables.exs`
+
+### 5. Run and verify
+
+Start Phoenix and open `/studio`. For MVP pages, verify:
+
+- `Agents` (live runtime and debug toggle)
+- `Registry` (discovery catalog)
+- `Threads` (persisted thread/memory explorer)
+- `Traces` (trace list + detail timeline)
+
 ## Runtime Installation Modes
 
 ### Mode 1: Auto Runtime (default)
@@ -95,11 +174,34 @@ Notes:
 ## Features
 
 - **Agents** — Browse, inspect, and chat with running agents
-- **Actions** — View registered actions and their schemas
-- **Workflows** — Visualize and debug workflow execution
-- **Signals** — Monitor signal routing and delivery
-- **Traces** — View telemetry events with trace correlation
+- **Registry** — Discovery-powered catalog of agents/actions/sensors/plugins
+- **Threads** — Inspect persisted thread/memory entries
+- **Traces** — Trace list + span timeline explorer
 - **Settings** — Configure runtime behavior
+
+## Observability Persistence
+
+Trace and span observability data is stored via the Studio persistence adapter.
+
+Default (zero setup):
+
+```elixir
+config :jido_studio, :persistence,
+  adapter: JidoStudio.Persistence.ETS,
+  opts: []
+```
+
+Optional Ecto/Postgres adapter:
+
+```elixir
+config :jido_studio, :persistence,
+  adapter: JidoStudio.Persistence.Ecto,
+  opts: [repo: MyApp.Repo, prefix: "public"]
+```
+
+Migration template:
+
+- `priv/ecto/migrations/20260215000000_create_jido_studio_persistence_tables.exs`
 
 ## Access Control
 

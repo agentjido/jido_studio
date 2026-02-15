@@ -127,25 +127,18 @@ defmodule JidoStudio.Layouts do
               icon="agents"
             />
             <.nav_item
-              path="/actions"
-              label="Actions"
+              path="/registry"
+              label="Registry"
               current_path={@current_path}
               prefix={@prefix}
-              icon="actions"
+              icon="registry"
             />
             <.nav_item
-              path="/workflows"
-              label="Workflows"
+              path="/threads"
+              label="Threads"
               current_path={@current_path}
               prefix={@prefix}
-              icon="workflows"
-            />
-            <.nav_item
-              path="/signals"
-              label="Signals"
-              current_path={@current_path}
-              prefix={@prefix}
-              icon="signals"
+              icon="threads"
             />
             <.nav_item
               path="/traces"
@@ -222,21 +215,15 @@ defmodule JidoStudio.Layouts do
     """
   end
 
-  defp nav_icon(%{name: "actions"} = assigns) do
+  defp nav_icon(%{name: "registry"} = assigns) do
     ~H"""
     <Lucideicons.zap class="w-[18px] h-[18px] shrink-0" />
     """
   end
 
-  defp nav_icon(%{name: "workflows"} = assigns) do
+  defp nav_icon(%{name: "threads"} = assigns) do
     ~H"""
     <Lucideicons.git_branch class="w-[18px] h-[18px] shrink-0" />
-    """
-  end
-
-  defp nav_icon(%{name: "signals"} = assigns) do
-    ~H"""
-    <Lucideicons.radio class="w-[18px] h-[18px] shrink-0" />
     """
   end
 

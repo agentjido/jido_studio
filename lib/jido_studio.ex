@@ -29,9 +29,8 @@ defmodule JidoStudio do
   ## Features
 
   - **Agents** — Browse, inspect, and chat with running agents
-  - **Actions** — View registered actions and their schemas
-  - **Workflows** — Visualize and debug workflow execution
-  - **Signals** — Monitor signal routing and delivery
+  - **Registry** — Discovery-powered catalog of agents, actions, sensors, and plugins
+  - **Threads** — Inspect persisted thread/memory entries
   - **Traces** — View telemetry events with trace correlation
   - **Settings** — Configure runtime behavior
 
@@ -54,9 +53,13 @@ defmodule JidoStudio do
         thread_retention_days: 30,
         persist_strategy_context: :summary,
         trace_buffer_size: 5000,
-        trace_preview_limit: 30,
+        trace_preview_limit: 200,
         trace_page_limit: 300,
         trace_include_agent_debug: true,
+        persistence: [
+          adapter: JidoStudio.Persistence.ETS,
+          opts: []
+        ],
         trace_events: JidoStudio.TraceCatalog.default_events(),
         presenter_registry: %{
           MyApp.CustomAgent => MyApp.StudioPresenters.CustomAgent
