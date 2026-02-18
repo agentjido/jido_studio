@@ -35,6 +35,12 @@ defmodule JidoStudio.SettingsLive do
       |> assign(:thread_retention_days, ThreadsStorage.thread_retention_days())
       |> assign(:persist_strategy_context, ThreadsStorage.persist_strategy_context_mode())
       |> assign(:auto_start_runtime, ThreadsStorage.auto_start_runtime?())
+      |> assign(:live_ops_enabled, JidoStudio.LiveOps.enabled?())
+      |> assign(:live_ops_presence, JidoStudio.LiveOps.presence_available?())
+      |> assign(:live_ops_scope_keys, JidoStudio.LiveOps.scope_keys())
+      |> assign(:trace_hide_internal_default, JidoStudio.TraceFilter.hide_internal_default?())
+      |> assign(:trace_max_span_rows, JidoStudio.TraceFilter.max_span_rows())
+      |> assign(:evals_enabled, JidoStudio.Evals.enabled?())
       |> assign(:persistence_adapter, inspect(JidoStudio.Persistence.adapter()))
       |> assign(
         :persistence_opts,
@@ -67,6 +73,8 @@ defmodule JidoStudio.SettingsLive do
         <.stat_card label="Thread Persistence" value={if(@thread_persistence, do: "On", else: "Off")} />
         <.stat_card label="Thread Storage Mode" value={to_string(@thread_storage_mode)} />
         <.stat_card label="Persistence Adapter" value={@persistence_adapter} />
+        <.stat_card label="Live Ops" value={if(@live_ops_enabled, do: "On", else: "Off")} />
+        <.stat_card label="Evals" value={if(@evals_enabled, do: "On", else: "Off")} />
       </div>
 
       <.card>
@@ -91,10 +99,36 @@ defmodule JidoStudio.SettingsLive do
             <span class="text-sm text-js-text font-mono">{@trace_page_limit}</span>
           </div>
           <div class="flex justify-between items-center py-2 border-b border-js-border">
+            <span class="text-sm text-js-text-muted">Trace Hide Internal Default</span>
+            <span class="text-sm text-js-text font-mono">
+              {to_string(@trace_hide_internal_default)}
+            </span>
+          </div>
+          <div class="flex justify-between items-center py-2 border-b border-js-border">
+            <span class="text-sm text-js-text-muted">Trace Max Span Rows</span>
+            <span class="text-sm text-js-text font-mono">{@trace_max_span_rows}</span>
+          </div>
+          <div class="flex justify-between items-center py-2 border-b border-js-border">
             <span class="text-sm text-js-text-muted">Include Agent Debug Stream</span>
             <span class="text-sm text-js-text font-mono">
               {to_string(@trace_include_agent_debug)}
             </span>
+          </div>
+          <div class="flex justify-between items-center py-2 border-b border-js-border">
+            <span class="text-sm text-js-text-muted">Live Ops Enabled</span>
+            <span class="text-sm text-js-text font-mono">{to_string(@live_ops_enabled)}</span>
+          </div>
+          <div class="flex justify-between items-center py-2 border-b border-js-border">
+            <span class="text-sm text-js-text-muted">Presence Available</span>
+            <span class="text-sm text-js-text font-mono">{to_string(@live_ops_presence)}</span>
+          </div>
+          <div class="flex justify-between items-center py-2 border-b border-js-border">
+            <span class="text-sm text-js-text-muted">Live Ops Scope Keys</span>
+            <span class="text-sm text-js-text font-mono">{inspect(@live_ops_scope_keys)}</span>
+          </div>
+          <div class="flex justify-between items-center py-2 border-b border-js-border">
+            <span class="text-sm text-js-text-muted">Evals Enabled</span>
+            <span class="text-sm text-js-text font-mono">{to_string(@evals_enabled)}</span>
           </div>
           <div class="flex justify-between items-center py-2 border-b border-js-border">
             <span class="text-sm text-js-text-muted">Thread Persistence</span>

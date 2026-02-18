@@ -3,6 +3,7 @@ defmodule JidoStudio.TraceBuffer do
   use GenServer
 
   alias JidoStudio.Ingestor
+  alias JidoStudio.LiveOps
   alias JidoStudio.TraceCatalog
 
   @default_size 5000
@@ -187,6 +188,7 @@ defmodule JidoStudio.TraceBuffer do
 
     :ets.insert(@table, {counter, normalized})
     Ingestor.ingest_event(normalized)
+    broadcast_live_ops(normalized)
 
     if counter > state.size do
       case :ets.first(@table) do
@@ -229,6 +231,22 @@ defmodule JidoStudio.TraceBuffer do
 
     agent_id = metadata[:agent_id]
     instance_id = metadata[:instance_id] || agent_id
+    entity_type = metadata[:entity_type] || infer_entity_type(event_prefix)
+
+    entity_id =
+      metadata[:entity_id] || metadata[:tool_name] || metadata[:sensor_id] || call_id ||
+        metadata[:agent_id] || span_id
+
+    internal =
+      (metadata[:internal] || metadata[:is_internal] || metadata["internal"]) == true or
+        infer_internal?(event_prefix)
+
+    chunk_index = normalize_optional_non_negative_integer(metadata[:chunk_index])
+    chunk_count = normalize_optional_non_negative_integer(metadata[:chunk_count])
+    task_id = metadata[:task_id] || metadata[:todo_id] || metadata["task_id"]
+    task_status = metadata[:task_status] || metadata["task_status"]
+    parent_agent_id = metadata[:parent_agent_id] || metadata["parent_agent_id"]
+    scope = scope_from_metadata(metadata)
 
     %{
       id: counter,
@@ -246,6 +264,16 @@ defmodule JidoStudio.TraceBuffer do
       call_id: call_id,
       agent_id: agent_id,
       instance_id: instance_id,
+      entity_type: entity_type,
+      entity_id: entity_id,
+      internal: internal,
+      parent_agent_id: parent_agent_id,
+      chunk_index: chunk_index,
+      chunk_count: chunk_count,
+      task_id: task_id,
+      task_status: task_status,
+      scope: scope,
+      status: event_status(List.last(event_prefix)),
       signal_type: metadata[:signal_type],
       directive_type: metadata[:directive_type]
     }
@@ -268,6 +296,16 @@ defmodule JidoStudio.TraceBuffer do
       call_id: nil,
       agent_id: nil,
       instance_id: nil,
+      entity_type: :other,
+      entity_id: nil,
+      internal: false,
+      parent_agent_id: nil,
+      chunk_index: nil,
+      chunk_count: nil,
+      task_id: nil,
+      task_status: nil,
+      scope: %{},
+      status: nil,
       signal_type: nil,
       directive_type: nil
     }
@@ -308,6 +346,7 @@ defmodule JidoStudio.TraceBuffer do
 
     cond do
       should_redact and sensitive_key?(key) -> "[REDACTED]"
+      is_struct(value) -> inspect(value)
       is_map(value) -> sanitize_metadata(value)
       is_list(value) -> Enum.map(value, &sanitize_metadata_entry(:nested, &1))
       true -> value
@@ -379,4 +418,90 @@ defmodule JidoStudio.TraceBuffer do
   end
 
   defp monotonic_to_wallclock(_), do: System.system_time(:millisecond)
+
+  defp broadcast_live_ops(event) when is_map(event) do
+    payload = %{
+      timestamp_ms: event[:timestamp_ms],
+      trace_id: event[:trace_id],
+      span_id: event[:span_id],
+      type: event[:type],
+      status: event[:status]
+    }
+
+    scope = event[:scope] || %{}
+    _ = LiveOps.broadcast_agent_list(payload, scope)
+
+    case event[:agent_id] || event[:instance_id] do
+      agent_id when is_binary(agent_id) and agent_id != "" ->
+        _ = LiveOps.broadcast_agent(agent_id, payload, scope)
+        :ok
+
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp broadcast_live_ops(_), do: :ok
+
+  defp infer_entity_type(prefix) when is_list(prefix) do
+    values = Enum.map(prefix, &to_string/1)
+
+    cond do
+      Enum.member?(values, "tool") -> :tool
+      Enum.member?(values, "middleware") -> :middleware
+      Enum.member?(values, "scheduler") -> :scheduler
+      Enum.member?(values, "sensor") -> :sensor
+      Enum.member?(values, "ai") -> :model
+      Enum.member?(values, "agent") -> :agent
+      true -> :other
+    end
+  end
+
+  defp infer_entity_type(_), do: :other
+
+  defp infer_internal?(prefix) when is_list(prefix) do
+    values = Enum.map(prefix, &to_string/1)
+
+    Enum.member?(values, "strategy") or
+      Enum.member?(values, "agent_server") or
+      Enum.member?(values, "middleware")
+  end
+
+  defp infer_internal?(_), do: false
+
+  defp event_status(:exception), do: "error"
+  defp event_status("exception"), do: "error"
+  defp event_status(:stop), do: "ok"
+  defp event_status("stop"), do: "ok"
+  defp event_status(:start), do: "running"
+  defp event_status("start"), do: "running"
+  defp event_status(_), do: nil
+
+  defp normalize_optional_non_negative_integer(value) when is_integer(value) and value >= 0,
+    do: value
+
+  defp normalize_optional_non_negative_integer(_), do: nil
+
+  defp scope_from_metadata(metadata) when is_map(metadata) do
+    scope_map =
+      metadata[:scope] || metadata["scope"] || %{}
+
+    base =
+      cond do
+        is_map(scope_map) -> scope_map
+        is_list(scope_map) -> Map.new(scope_map)
+        true -> %{}
+      end
+
+    base
+    |> maybe_put_scope(:project_id, metadata[:project_id] || metadata["project_id"])
+    |> maybe_put_scope(:user_id, metadata[:user_id] || metadata["user_id"])
+  end
+
+  defp scope_from_metadata(_), do: %{}
+
+  defp maybe_put_scope(scope, _key, nil), do: scope
+  defp maybe_put_scope(scope, key, value), do: Map.put(scope, key, value)
 end

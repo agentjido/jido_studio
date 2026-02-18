@@ -2,6 +2,7 @@ defmodule JidoStudio.Tracing do
   @moduledoc false
 
   alias JidoStudio.Persistence
+  alias JidoStudio.TraceFilter
 
   @traces_namespace "traces"
   @spans_namespace "spans"
@@ -34,13 +35,17 @@ defmodule JidoStudio.Tracing do
 
   def list_trace_events(trace_id, opts) when is_binary(trace_id) do
     limit = normalize_limit(Keyword.get(opts, :limit, 500))
+    filter_opts = trace_filter_opts(Keyword.get(opts, :filters, %{}))
 
-    Persistence.read_events("trace:" <> trace_id,
+    ("trace:" <> trace_id)
+    |> Persistence.read_events(
       order: normalize_order(Keyword.get(opts, :order, :asc)),
       limit: limit,
       after_seq: Keyword.get(opts, :after_seq),
       before_seq: Keyword.get(opts, :before_seq)
     )
+    |> TraceFilter.apply(filter_opts)
+    |> maybe_take(limit)
   end
 
   def list_trace_events(_, _), do: []
@@ -49,7 +54,13 @@ defmodule JidoStudio.Tracing do
   def list_trace_spans(trace_id, opts \\ [])
 
   def list_trace_spans(trace_id, opts) when is_binary(trace_id) do
-    limit = normalize_limit(Keyword.get(opts, :limit, 3_000))
+    limit =
+      normalize_limit(
+        Keyword.get(opts, :limit, TraceFilter.max_span_rows()),
+        TraceFilter.max_span_rows()
+      )
+
+    filter_opts = trace_filter_opts(Keyword.get(opts, :filters, %{}))
 
     spans =
       Persistence.list_docs(@spans_namespace,
@@ -65,10 +76,44 @@ defmodule JidoStudio.Tracing do
         _ -> nil
       end
 
-    decorate_span_hierarchy(spans, trace_started_at)
+    spans
+    |> TraceFilter.apply(filter_opts)
+    |> decorate_span_hierarchy(trace_started_at)
+    |> mark_critical_path()
+    |> maybe_take(limit)
   end
 
   def list_trace_spans(_, _), do: []
+
+  @spec trace_entity_rollups(String.t(), keyword()) :: [map()]
+  def trace_entity_rollups(trace_id, opts \\ [])
+
+  def trace_entity_rollups(trace_id, opts) when is_binary(trace_id) do
+    list_trace_spans(trace_id, opts)
+    |> Enum.reduce(%{}, fn span, acc ->
+      entity_type = normalize_optional_string(span[:entity_type]) || "other"
+      duration = span[:duration_ms] || 0
+      errors = if(span[:status] == "error" or span[:error] == true, do: 1, else: 0)
+
+      Map.update(
+        acc,
+        entity_type,
+        %{entity_type: entity_type, duration_ms: duration, count: 1, errors: errors},
+        fn existing ->
+          %{
+            existing
+            | duration_ms: existing.duration_ms + duration,
+              count: existing.count + 1,
+              errors: existing.errors + errors
+          }
+        end
+      )
+    end)
+    |> Map.values()
+    |> Enum.sort_by(&{&1.duration_ms, &1.count}, :desc)
+  end
+
+  def trace_entity_rollups(_, _), do: []
 
   defp trace_matches_filters?(trace, filters) when is_map(trace) do
     status_filter =
@@ -214,6 +259,63 @@ defmodule JidoStudio.Tracing do
     |> Enum.map(&decorate_span_offsets(&1, trace_started_at))
   end
 
+  defp mark_critical_path(spans) when is_list(spans) do
+    by_id = Map.new(spans, fn span -> {span[:span_id], span} end)
+
+    children_by_parent =
+      Enum.reduce(spans, %{}, fn span, acc ->
+        parent = span[:parent_span_id]
+        Map.update(acc, parent, [span], &[span | &1])
+      end)
+
+    roots =
+      spans
+      |> Enum.filter(fn span ->
+        parent = span[:parent_span_id]
+        is_nil(parent) or not Map.has_key?(by_id, parent)
+      end)
+      |> Enum.sort_by(&span_sort_key/1, :asc)
+
+    {_, path} =
+      Enum.reduce(roots, {0, []}, fn root, {best_duration, best_path} ->
+        {duration, current_path} = longest_path(root, children_by_parent)
+
+        if duration > best_duration do
+          {duration, current_path}
+        else
+          {best_duration, best_path}
+        end
+      end)
+
+    path_ids = MapSet.new(Enum.map(path, & &1[:span_id]))
+    Enum.map(spans, &Map.put(&1, :critical_path, MapSet.member?(path_ids, &1[:span_id])))
+  end
+
+  defp mark_critical_path(other), do: other
+
+  defp longest_path(span, children_by_parent) do
+    children = Map.get(children_by_parent, span[:span_id], [])
+
+    if children == [] do
+      {span_duration(span), [span]}
+    else
+      {child_duration, child_path} =
+        Enum.reduce(children, {0, []}, fn child, {best_duration, best_path} ->
+          {duration, path} = longest_path(child, children_by_parent)
+          if duration > best_duration, do: {duration, path}, else: {best_duration, best_path}
+        end)
+
+      {span_duration(span) + child_duration, [span | child_path]}
+    end
+  end
+
+  defp span_duration(span) when is_map(span) do
+    value = Map.get(span, :duration_ms)
+    if is_integer(value) and value >= 0, do: value, else: 0
+  end
+
+  defp span_duration(_), do: 0
+
   defp flatten_span_tree(span, children_by_parent, depth) do
     decorated = Map.put(span, :depth, depth)
 
@@ -251,11 +353,37 @@ defmodule JidoStudio.Tracing do
   defp normalize_limit(value) when is_integer(value) and value > 0, do: value
   defp normalize_limit(_), do: @default_limit
 
+  defp normalize_limit(value, _default) when is_integer(value) and value > 0, do: value
+  defp normalize_limit(_value, default), do: default
+
   defp normalize_order(:asc), do: :asc
   defp normalize_order(:desc), do: :desc
   defp normalize_order("asc"), do: :asc
   defp normalize_order("desc"), do: :desc
   defp normalize_order(_), do: :asc
+
+  defp trace_filter_opts(filters) do
+    [
+      hide_internal: normalize_boolean(filters[:hide_internal] || filters["hide_internal"]),
+      entity_type: filters[:entity_type] || filters["entity_type"],
+      status: filters[:status] || filters["status"],
+      stream_only: normalize_boolean(filters[:stream_only] || filters["stream_only"]),
+      query: filters[:query] || filters["query"]
+    ]
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+  end
+
+  defp normalize_boolean(nil), do: nil
+  defp normalize_boolean(true), do: true
+  defp normalize_boolean(false), do: false
+  defp normalize_boolean("true"), do: true
+  defp normalize_boolean("false"), do: false
+  defp normalize_boolean("1"), do: true
+  defp normalize_boolean("0"), do: false
+  defp normalize_boolean(_), do: nil
+
+  defp maybe_take(list, limit) when is_integer(limit) and limit > 0, do: Enum.take(list, limit)
+  defp maybe_take(list, _limit), do: list
 
   defp now_ms, do: System.system_time(:millisecond)
 end

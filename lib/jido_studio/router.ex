@@ -35,6 +35,10 @@ defmodule JidoStudio.Router do
     * `:host_app_js_path` — path to host app JavaScript that boots Phoenix LiveView.
       Defaults to `"/assets/app.js"`. Set to `nil` to skip loading host JS.
 
+    * `:extension_modules` — additional `JidoStudio.Extension` modules.
+      Useful for host-specific optional package integrations.
+      Defaults to `config :jido_studio, :extension_modules, []`.
+
   ## Examples
 
   Mount with authentication:
@@ -59,15 +63,23 @@ defmodule JidoStudio.Router do
       require Phoenix.LiveView.Router
 
       resolver = Keyword.get(opts, :resolver, JidoStudio.Resolver.Default)
-      socket_path = Keyword.get(opts, :socket_path, "/live")
+      _socket_path = Keyword.get(opts, :socket_path, "/live")
       csp_nonce_assign_key = Keyword.get(opts, :csp_nonce_assign_key)
       on_mount = Keyword.get(opts, :on_mount, [])
       host_app_js_path = Keyword.get(opts, :host_app_js_path, "/assets/app.js")
+
+      extension_modules =
+        Keyword.get_lazy(opts, :extension_modules, fn ->
+          Application.compile_env(:jido_studio, :extension_modules, [])
+        end)
 
       jido_instance =
         Keyword.get_lazy(opts, :jido_instance, fn ->
           Application.compile_env(:jido_studio, :jido_instance)
         end)
+
+      extension_nav_sections = JidoStudio.Extensions.nav_sections(extension_modules)
+      extension_routes = JidoStudio.Extensions.routes(extension_modules)
 
       prefix =
         Phoenix.Router.scoped_path(__MODULE__, path)
@@ -78,7 +90,8 @@ defmodule JidoStudio.Router do
         "csp_nonce_assign_key" => csp_nonce_assign_key,
         "prefix" => prefix,
         "jido_instance" => jido_instance,
-        "host_app_js_path" => host_app_js_path
+        "host_app_js_path" => host_app_js_path,
+        "extension_nav_sections" => extension_nav_sections
       }
 
       scope path, alias: false, as: false do
@@ -107,6 +120,10 @@ defmodule JidoStudio.Router do
           Phoenix.LiveView.Router.live("/traces", JidoStudio.TracesLive, :index)
           Phoenix.LiveView.Router.live("/traces/:trace_id", JidoStudio.TracesLive, :show)
           Phoenix.LiveView.Router.live("/settings", JidoStudio.SettingsLive, :index)
+
+          for route <- extension_routes do
+            Phoenix.LiveView.Router.live(route.path, route.live_view, route.action)
+          end
         end
       end
     end

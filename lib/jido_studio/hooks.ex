@@ -10,6 +10,7 @@ defmodule JidoStudio.Hooks do
     prefix = Map.get(session, "prefix", "")
     jido_instance = Map.get(session, "jido_instance")
     host_app_js_path = Map.get(session, "host_app_js_path", "/assets/app.js")
+    extension_nav_sections = Map.get(session, "extension_nav_sections", [])
 
     socket =
       socket
@@ -17,6 +18,7 @@ defmodule JidoStudio.Hooks do
       |> assign(:csp_nonce_assign_key, csp_nonce_assign_key)
       |> assign(:jido_instance, jido_instance)
       |> assign(:host_app_js_path, host_app_js_path)
+      |> assign(:extension_nav_sections, extension_nav_sections)
       |> assign(:studio_version, JidoStudio.version())
       |> assign(:page_title, "Jido Studio")
       |> assign(:current_path, "")

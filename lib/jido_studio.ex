@@ -29,9 +29,11 @@ defmodule JidoStudio do
   ## Features
 
   - **Agents** — Browse, inspect, and chat with running agents
+  - **Live Ops** — Event-driven runtime updates and scoped debugging
+  - **Delegation** — Sub-agent/task visibility for causal debugging
   - **Registry** — Discovery-powered catalog of agents, actions, sensors, and plugins
   - **Threads** — Inspect persisted thread/memory entries
-  - **Traces** — View telemetry events with trace correlation
+  - **Traces** — View telemetry events with filtering, critical path, and eval history
   - **Settings** — Configure runtime behavior
 
   ## Customization
@@ -56,6 +58,23 @@ defmodule JidoStudio do
         trace_preview_limit: 200,
         trace_page_limit: 300,
         trace_include_agent_debug: true,
+        live_ops: [
+          enabled: true,
+          auto_follow_default: true,
+          scope_keys: [:project_id, :user_id]
+        ],
+        delegation: [
+          enabled: true
+        ],
+        tracing: [
+          hide_internal_default: true,
+          chunk_span_sampling: 1.0,
+          max_span_rows: 5_000
+        ],
+        evals: [
+          enabled: true,
+          rule_sets: [:default]
+        ],
         persistence: [
           adapter: JidoStudio.Persistence.ETS,
           opts: []

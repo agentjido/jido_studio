@@ -7,11 +7,13 @@ defmodule JidoStudio.Layouts do
   @doc false
   def studio(assigns) do
     workbench_mode? = workbench_mode?(assigns[:current_path], assigns[:prefix])
+    extension_nav_sections = List.wrap(assigns[:extension_nav_sections])
 
     assigns =
       assigns
       |> assign(:workbench_mode?, workbench_mode?)
       |> assign(:main_class, main_class(workbench_mode?))
+      |> assign(:nav_sections, nav_sections(extension_nav_sections))
 
     ~H"""
     <!DOCTYPE html>
@@ -60,7 +62,7 @@ defmodule JidoStudio.Layouts do
           class="group flex h-[100dvh] max-h-[100dvh] overflow-hidden"
           data-sidebar-state="expanded"
         >
-          <.sidebar current_path={@current_path} prefix={@prefix} />
+          <.sidebar current_path={@current_path} prefix={@prefix} nav_sections={@nav_sections} />
           <main class={@main_class}>
             {@inner_content}
           </main>
@@ -114,38 +116,18 @@ defmodule JidoStudio.Layouts do
 
       <%!-- SidebarContent --%>
       <div class="flex-1 min-h-0 overflow-y-auto js-scroll py-2">
-        <div>
+        <div :for={section <- @nav_sections} class={if section.id == :core, do: "", else: "mt-4"}>
           <div class="px-3 py-1.5 text-xs font-medium text-js-text-subtle uppercase tracking-wider group-data-[sidebar-state=collapsed]:hidden">
-            Navigation
+            {section.label}
           </div>
           <nav class="space-y-0.5 mt-1">
             <.nav_item
-              path="/agents"
-              label="Agents"
+              :for={item <- section.items}
+              path={item.path}
+              label={item.label}
               current_path={@current_path}
               prefix={@prefix}
-              icon="agents"
-            />
-            <.nav_item
-              path="/registry"
-              label="Registry"
-              current_path={@current_path}
-              prefix={@prefix}
-              icon="registry"
-            />
-            <.nav_item
-              path="/threads"
-              label="Threads"
-              current_path={@current_path}
-              prefix={@prefix}
-              icon="threads"
-            />
-            <.nav_item
-              path="/traces"
-              label="Traces"
-              current_path={@current_path}
-              prefix={@prefix}
-              icon="traces"
+              icon={item.icon}
             />
           </nav>
         </div>
@@ -238,6 +220,77 @@ defmodule JidoStudio.Layouts do
     <Lucideicons.settings class="w-[18px] h-[18px] shrink-0" />
     """
   end
+
+  defp nav_icon(%{name: "messaging"} = assigns) do
+    ~H"""
+    <Lucideicons.message_circle class="w-[18px] h-[18px] shrink-0" />
+    """
+  end
+
+  defp nav_icon(assigns) do
+    ~H"""
+    <Lucideicons.zap class="w-[18px] h-[18px] shrink-0" />
+    """
+  end
+
+  defp nav_sections(extension_nav_sections) do
+    [core_nav_section() | normalize_nav_sections(extension_nav_sections)]
+  end
+
+  defp core_nav_section do
+    %{
+      id: :core,
+      label: "Navigation",
+      items: [
+        %{path: "/agents", label: "Agents", icon: "agents"},
+        %{path: "/registry", label: "Registry", icon: "registry"},
+        %{path: "/threads", label: "Threads", icon: "threads"},
+        %{path: "/traces", label: "Traces", icon: "traces"}
+      ]
+    }
+  end
+
+  defp normalize_nav_sections(sections) when is_list(sections) do
+    Enum.flat_map(sections, &normalize_nav_section/1)
+  end
+
+  defp normalize_nav_sections(_), do: []
+
+  defp normalize_nav_section(section) when is_map(section) do
+    id = Map.get(section, :id) || Map.get(section, "id")
+    label = Map.get(section, :label) || Map.get(section, "label")
+    items = Map.get(section, :items) || Map.get(section, "items")
+
+    if (is_atom(id) or is_binary(id)) and is_binary(label) and is_list(items) do
+      normalized_items =
+        items
+        |> Enum.flat_map(&normalize_nav_item/1)
+
+      if normalized_items == [] do
+        []
+      else
+        [%{id: id, label: label, items: normalized_items}]
+      end
+    else
+      []
+    end
+  end
+
+  defp normalize_nav_section(_), do: []
+
+  defp normalize_nav_item(item) when is_map(item) do
+    path = Map.get(item, :path) || Map.get(item, "path")
+    label = Map.get(item, :label) || Map.get(item, "label")
+    icon = Map.get(item, :icon) || Map.get(item, "icon")
+
+    if is_binary(path) and is_binary(label) and is_binary(icon) do
+      [%{path: path, label: label, icon: icon}]
+    else
+      []
+    end
+  end
+
+  defp normalize_nav_item(_), do: []
 
   defp jido_version do
     case Application.spec(:jido, :vsn) do

@@ -7,6 +7,8 @@ defmodule JidoStudio.AgentsLive do
   alias JidoStudio.AgentRegistry
   alias JidoStudio.Chat.Runtime, as: ChatRuntime
   alias JidoStudio.Chat.Session, as: ChatSession
+  alias JidoStudio.Delegation
+  alias JidoStudio.LiveOps
   alias JidoStudio.Naming
   alias JidoStudio.Observability
   alias JidoStudio.PresenterResolver
@@ -20,12 +22,11 @@ defmodule JidoStudio.AgentsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: :timer.send_interval(2000, self(), :refresh_instance_observability)
-
     jido_instance = resolve_jido_instance(socket.assigns[:jido_instance])
     agents = AgentRegistry.list_agents(jido_instance: jido_instance)
     running_count = AgentRegistry.running_count(jido_instance)
     start_form_schema = Default.start_form_schema(%{})
+    scope_filters = %{project_id: nil, user_id: nil, agent_id: nil}
 
     socket =
       socket
@@ -70,10 +71,22 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:instance_telemetry_events, [])
       |> assign(:instance_debug_error, nil)
       |> assign(:instance_debug_enabled?, false)
+      |> assign(:instance_debug_level, "off")
+      |> assign(:subagents, [])
+      |> assign(:tasks, [])
+      |> assign(:delegation_graph, %{nodes: [], edges: []})
+      |> assign(:tool_insights, [])
+      |> assign(:middleware_snapshots, [])
+      |> assign(:scope_filters, scope_filters)
+      |> assign(:live_ops_enabled?, LiveOps.enabled?())
+      |> assign(:live_ops_presence?, LiveOps.presence_available?())
+      |> assign(:live_ops_realtime?, false)
       |> assign(:start_form_schema, start_form_schema)
       |> assign(:start_form, default_start_form(start_form_schema))
       |> assign(:start_form_error, nil)
       |> assign_chat_controls(@default_model)
+
+    socket = setup_live_ops(socket)
 
     {:ok, socket}
   end
@@ -86,13 +99,36 @@ defmodule JidoStudio.AgentsLive do
   @impl true
   def handle_event("refresh", _params, socket) do
     jido_instance = socket.assigns[:jido_instance]
-    agents = AgentRegistry.list_agents(jido_instance: jido_instance)
+
+    agents =
+      AgentRegistry.list_agents(jido_instance: jido_instance)
+      |> filter_agents_by_scope(socket.assigns[:scope_filters])
+
     running_count = AgentRegistry.running_count(jido_instance)
 
     {:noreply,
      socket
      |> assign(:agents, agents)
      |> assign(:running_count, running_count)}
+  end
+
+  @impl true
+  def handle_event("update_scope_filters", %{"scope" => scope_params}, socket) do
+    filters = normalize_scope_filters(scope_params)
+    jido_instance = socket.assigns[:jido_instance]
+
+    if connected?(socket) and socket.assigns[:live_ops_enabled?] do
+      _ = LiveOps.subscribe_agent_list(filters)
+    end
+
+    agents =
+      AgentRegistry.list_agents(jido_instance: jido_instance)
+      |> filter_agents_by_scope(filters)
+
+    {:noreply,
+     socket
+     |> assign(:scope_filters, filters)
+     |> assign(:agents, agents)}
   end
 
   @impl true
@@ -205,6 +241,29 @@ defmodule JidoStudio.AgentsLive do
     error ->
       {:noreply,
        put_flash(socket, :error, "Failed to toggle debug mode: #{Exception.message(error)}")}
+  end
+
+  @impl true
+  def handle_event("set_debug_level", %{"level" => level}, socket) do
+    with true <- is_pid(socket.assigns.active_instance_pid),
+         debug_flag <- level in ["on", "verbose"],
+         :ok <- Jido.AgentServer.set_debug(socket.assigns.active_instance_pid, debug_flag) do
+      {:noreply,
+       socket
+       |> assign(:instance_debug_level, normalize_debug_level(level, debug_flag))
+       |> put_flash(:info, "Debug level set to #{normalize_debug_level(level, debug_flag)}.")
+       |> refresh_instance_observability()}
+    else
+      false ->
+        {:noreply, put_flash(socket, :error, "No running instance selected.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to set debug level: #{inspect(reason)}")}
+    end
+  rescue
+    error ->
+      {:noreply,
+       put_flash(socket, :error, "Failed to set debug level: #{Exception.message(error)}")}
   end
 
   @impl true
@@ -487,6 +546,42 @@ defmodule JidoStudio.AgentsLive do
   end
 
   @impl true
+  def handle_info({:jido_studio_live_ops, :agent_list, payload}, socket) do
+    socket =
+      if scope_filters_match?(Map.get(payload, :scope), socket.assigns[:scope_filters]) do
+        jido_instance = socket.assigns[:jido_instance]
+
+        agents =
+          AgentRegistry.list_agents(jido_instance: jido_instance)
+          |> filter_agents_by_scope(socket.assigns[:scope_filters])
+
+        socket
+        |> assign(:agents, agents)
+        |> assign(:running_count, AgentRegistry.running_count(jido_instance))
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:jido_studio_live_ops, :agent, payload}, socket) do
+    active_instance_id = socket.assigns[:active_instance_id]
+    payload_agent = payload[:agent_id]
+
+    socket =
+      if is_binary(active_instance_id) and is_binary(payload_agent) and
+           payload_agent == active_instance_id do
+        refresh_instance_observability(socket)
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_info(:refresh_instance_observability, socket) do
     {:noreply, refresh_instance_observability(socket)}
   end
@@ -578,9 +673,21 @@ defmodule JidoStudio.AgentsLive do
 
   defp apply_action(socket, :index, _params) do
     start_form_schema = Default.start_form_schema(%{})
+    jido_instance = socket.assigns[:jido_instance]
+
+    scope_filters =
+      socket.assigns[:scope_filters] || %{project_id: nil, user_id: nil, agent_id: nil}
+
+    agents =
+      AgentRegistry.list_agents(jido_instance: jido_instance)
+      |> filter_agents_by_scope(scope_filters)
+
+    running_count = AgentRegistry.running_count(jido_instance)
 
     socket
     |> assign(:page_title, "Agents")
+    |> assign(:agents, agents)
+    |> assign(:running_count, running_count)
     |> assign(:agent, nil)
     |> assign(:presenter, Default)
     |> assign(:agent_workspace_key, nil)
@@ -608,12 +715,19 @@ defmodule JidoStudio.AgentsLive do
     |> assign(:instance_telemetry_events, [])
     |> assign(:instance_debug_error, nil)
     |> assign(:instance_debug_enabled?, false)
+    |> assign(:instance_debug_level, "off")
+    |> assign(:subagents, [])
+    |> assign(:tasks, [])
+    |> assign(:delegation_graph, %{nodes: [], edges: []})
+    |> assign(:tool_insights, [])
+    |> assign(:middleware_snapshots, [])
   end
 
   defp apply_action(socket, :show, %{"slug" => slug} = params) do
     jido_instance = socket.assigns[:jido_instance]
     requested_instance_id = Map.get(params, "instance_id")
     workbench_tab = parse_workbench_tab(Map.get(params, "panel"), Map.get(params, "view"))
+    scope_filters = merge_scope_filters(socket.assigns[:scope_filters], Map.get(params, "scope"))
 
     case AgentRegistry.get_agent(slug, jido_instance: jido_instance) do
       nil ->
@@ -632,11 +746,20 @@ defmodule JidoStudio.AgentsLive do
 
         selected_instance =
           case requested_instance_id do
-            nil -> nil
-            id -> Enum.find(running_instances, &(&1.id == id))
+            nil ->
+              if LiveOps.auto_follow_default?() do
+                List.first(running_instances)
+              else
+                nil
+              end
+
+            id ->
+              Enum.find(running_instances, &(&1.id == id))
           end
 
-        active_instance_id = requested_instance_id || (selected_instance && selected_instance.id)
+        active_instance_id =
+          if(selected_instance, do: selected_instance.id, else: requested_instance_id)
+
         active_instance_pid = selected_instance && selected_instance.pid
 
         runtime_status =
@@ -708,9 +831,17 @@ defmodule JidoStudio.AgentsLive do
         |> assign(:active_instance_id, active_instance_id)
         |> assign(:active_instance_pid, active_instance_pid)
         |> assign(:runtime_status, runtime_status)
+        |> assign(:scope_filters, scope_filters)
         |> assign(
           :instance_debug_enabled?,
           if(selected_instance, do: instance_debug_enabled(selected_instance), else: false)
+        )
+        |> assign(
+          :instance_debug_level,
+          if(selected_instance && instance_debug_enabled(selected_instance),
+            do: "on",
+            else: "off"
+          )
         )
         |> assign(:chat_config, chat_config)
         |> assign(:chat_enabled?, chat_enabled)
@@ -725,6 +856,7 @@ defmodule JidoStudio.AgentsLive do
           Map.get(view_model, :system_prompt, "No system prompt configured.")
         )
         |> ensure_workspace_state(agent, active_instance_id)
+        |> maybe_subscribe_live_ops(active_instance_id, scope_filters)
         |> refresh_instance_observability()
     end
   end
@@ -1011,6 +1143,38 @@ defmodule JidoStudio.AgentsLive do
               >
                 Instance
               </button>
+              <button
+                type="button"
+                phx-click="select_workbench_tab"
+                phx-value-panel="sub_agents"
+                class={workbench_tab_button_class(@workbench_tab == :sub_agents)}
+              >
+                Sub-Agents
+              </button>
+              <button
+                type="button"
+                phx-click="select_workbench_tab"
+                phx-value-panel="tasks"
+                class={workbench_tab_button_class(@workbench_tab == :tasks)}
+              >
+                Tasks
+              </button>
+              <button
+                type="button"
+                phx-click="select_workbench_tab"
+                phx-value-panel="tool_insights"
+                class={workbench_tab_button_class(@workbench_tab == :tool_insights)}
+              >
+                Tool Insights
+              </button>
+              <button
+                type="button"
+                phx-click="select_workbench_tab"
+                phx-value-panel="middleware"
+                class={workbench_tab_button_class(@workbench_tab == :middleware)}
+              >
+                Middleware
+              </button>
             </div>
           </div>
 
@@ -1108,9 +1272,138 @@ defmodule JidoStudio.AgentsLive do
                 active_instance_pid={@active_instance_pid}
                 traces_path={@traces_path}
                 instance_debug_enabled?={@instance_debug_enabled?}
+                instance_debug_level={@instance_debug_level}
                 instance_debug_error={@instance_debug_error}
                 instance_observability_events={@instance_observability_events}
               />
+            <% :sub_agents -> %>
+              <.card class="min-h-0 h-full overflow-hidden p-0">
+                <div class="px-3 py-2 border-b border-js-border">
+                  <h3 class="text-sm font-medium text-js-text">Sub-Agents</h3>
+                  <p class="text-xs text-js-text-muted mt-1">
+                    Delegated child agent activity inferred from runtime traces.
+                  </p>
+                </div>
+                <div class="p-3 overflow-y-auto overflow-x-hidden js-scroll space-y-2.5 flex-1 min-h-0">
+                  <%= if @subagents == [] do %>
+                    <.empty_state
+                      title="No sub-agent records"
+                      description="No delegation metadata was found for this instance."
+                    />
+                  <% else %>
+                    <div
+                      :for={sub <- @subagents}
+                      class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2.5 py-2"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-xs text-js-text font-mono">{sub.agent_id}</span>
+                        <.badge variant={:info}>{sub.status || "running"}</.badge>
+                      </div>
+                      <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
+                        parent: {sub.parent_agent_id}
+                      </div>
+                    </div>
+                  <% end %>
+                </div>
+              </.card>
+            <% :tasks -> %>
+              <.card class="min-h-0 h-full overflow-hidden p-0">
+                <div class="px-3 py-2 border-b border-js-border">
+                  <h3 class="text-sm font-medium text-js-text">Tasks</h3>
+                  <p class="text-xs text-js-text-muted mt-1">
+                    Task lifecycle inferred from scheduler/signal/directive events.
+                  </p>
+                </div>
+                <div class="p-3 overflow-y-auto overflow-x-hidden js-scroll space-y-2.5 flex-1 min-h-0">
+                  <%= if @tasks == [] do %>
+                    <.empty_state
+                      title="No task records"
+                      description="No task IDs were observed for this instance."
+                    />
+                  <% else %>
+                    <div
+                      :for={task <- @tasks}
+                      class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2.5 py-2"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-xs text-js-text font-mono">{task.task_id}</span>
+                        <.badge variant={task_badge_variant(task.task_status || task.status)}>
+                          {task.task_status || task.status || "running"}
+                        </.badge>
+                      </div>
+                      <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
+                        trace: {task.trace_id || "n/a"} / span: {task.span_id || "n/a"}
+                      </div>
+                    </div>
+                  <% end %>
+                </div>
+              </.card>
+            <% :tool_insights -> %>
+              <.card class="min-h-0 h-full overflow-hidden p-0">
+                <div class="px-3 py-2 border-b border-js-border">
+                  <h3 class="text-sm font-medium text-js-text">Tool Insights</h3>
+                  <p class="text-xs text-js-text-muted mt-1">
+                    Call counts, failures, and p95 durations for observed tool runs.
+                  </p>
+                </div>
+                <div class="p-3 overflow-y-auto overflow-x-hidden js-scroll space-y-2.5 flex-1 min-h-0">
+                  <%= if @tool_insights == [] do %>
+                    <.empty_state
+                      title="No tool runs"
+                      description="Tool usage appears here after runtime tool invocations."
+                    />
+                  <% else %>
+                    <div
+                      :for={run <- @tool_insights}
+                      class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2.5 py-2"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-xs text-js-text font-mono">
+                          {run.tool_name || run.call_id}
+                        </span>
+                        <.badge variant={if(run.failure_count > 0, do: :warning, else: :success)}>
+                          p95 {run.p95_duration_ms || 0}ms
+                        </.badge>
+                      </div>
+                      <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
+                        calls: {run.call_count || 0} / failures: {run.failure_count || 0}
+                      </div>
+                    </div>
+                  <% end %>
+                </div>
+              </.card>
+            <% :middleware -> %>
+              <.card class="min-h-0 h-full overflow-hidden p-0">
+                <div class="px-3 py-2 border-b border-js-border">
+                  <h3 class="text-sm font-medium text-js-text">Middleware</h3>
+                  <p class="text-xs text-js-text-muted mt-1">
+                    Latest middleware chain snapshots and invocation timing.
+                  </p>
+                </div>
+                <div class="p-3 overflow-y-auto overflow-x-hidden js-scroll space-y-2.5 flex-1 min-h-0">
+                  <%= if @middleware_snapshots == [] do %>
+                    <.empty_state
+                      title="No middleware snapshots"
+                      description="Middleware data appears when runtime metadata includes chain details."
+                    />
+                  <% else %>
+                    <div
+                      :for={snapshot <- @middleware_snapshots}
+                      class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2.5 py-2"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-xs text-js-text font-mono">
+                          {snapshot.entity_id || "middleware"}
+                        </span>
+                        <.badge variant={:default}>{snapshot.last_duration_ms || 0}ms</.badge>
+                      </div>
+                      <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
+                        {Enum.join(snapshot.middleware_chain || [], " -> ")}
+                      </div>
+                    </div>
+                  <% end %>
+                </div>
+              </.card>
             <% _ -> %>
               <.chat_conversation_panel
                 class="min-h-0 h-full"
@@ -1140,6 +1433,7 @@ defmodule JidoStudio.AgentsLive do
           instance_links={@instance_links}
           active_instance_id={@active_instance_id}
           instance_debug_enabled?={@instance_debug_enabled?}
+          instance_debug_level={@instance_debug_level}
           instance_debug_error={@instance_debug_error}
           traces_path={@traces_path}
           summary_meta={@summary_meta}
@@ -1172,6 +1466,47 @@ defmodule JidoStudio.AgentsLive do
           to enable runtime agent management.
         </p>
       </div>
+
+      <.card>
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <h3 class="text-sm font-medium text-js-text">Live Ops Scope</h3>
+          <.badge variant={if(@live_ops_realtime?, do: :success, else: :warning)}>
+            {if(@live_ops_realtime?, do: "event-driven", else: "polling fallback")}
+          </.badge>
+        </div>
+        <form phx-change="update_scope_filters" class="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <label class="text-xs text-js-text-muted">
+            Project ID
+            <input
+              type="text"
+              name="scope[project_id]"
+              value={@scope_filters.project_id || ""}
+              placeholder="project scope"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+          <label class="text-xs text-js-text-muted">
+            User ID
+            <input
+              type="text"
+              name="scope[user_id]"
+              value={@scope_filters.user_id || ""}
+              placeholder="user scope"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+          <label class="text-xs text-js-text-muted">
+            Agent ID
+            <input
+              type="text"
+              name="scope[agent_id]"
+              value={@scope_filters.agent_id || ""}
+              placeholder="instance filter"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+        </form>
+      </.card>
 
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <.stat_card label="Discovered Agents" value={to_string(length(@agents))} />
@@ -1228,6 +1563,7 @@ defmodule JidoStudio.AgentsLive do
   attr :active_instance_id, :string, default: nil
   attr :traces_path, :string, default: nil
   attr :instance_debug_enabled?, :boolean, default: false
+  attr :instance_debug_level, :string, default: "off"
   attr :instance_debug_error, :any, default: nil
   attr :summary_meta, :list, default: []
   attr :instance_observability_events, :list, default: []
@@ -1258,23 +1594,32 @@ defmodule JidoStudio.AgentsLive do
 
         <div :if={@active_instance_id} class="mt-3 flex items-center justify-between gap-2">
           <div class="text-xs uppercase tracking-wider text-js-text-subtle">Debug Buffer</div>
-          <button
-            type="button"
-            phx-click="toggle_instance_debug"
-            class={[
-              "inline-flex items-center rounded-md px-2.5 py-1 text-xs border transition-colors",
-              if(@instance_debug_enabled?,
-                do: "border-js-info/30 bg-js-info/15 text-js-info",
-                else: "border-js-border text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-              )
-            ]}
-          >
-            <%= if @instance_debug_enabled? do %>
-              Disable Debug
-            <% else %>
-              Enable Debug
-            <% end %>
-          </button>
+          <div class="inline-flex items-center gap-1">
+            <button
+              type="button"
+              phx-click="set_debug_level"
+              phx-value-level="off"
+              class={debug_level_button_class(@instance_debug_level == "off")}
+            >
+              Off
+            </button>
+            <button
+              type="button"
+              phx-click="set_debug_level"
+              phx-value-level="on"
+              class={debug_level_button_class(@instance_debug_level == "on")}
+            >
+              On
+            </button>
+            <button
+              type="button"
+              phx-click="set_debug_level"
+              phx-value-level="verbose"
+              class={debug_level_button_class(@instance_debug_level == "verbose")}
+            >
+              Verbose
+            </button>
+          </div>
         </div>
 
         <p
@@ -1348,6 +1693,7 @@ defmodule JidoStudio.AgentsLive do
   attr :active_instance_pid, :any, default: nil
   attr :traces_path, :string, default: nil
   attr :instance_debug_enabled?, :boolean, default: false
+  attr :instance_debug_level, :string, default: "off"
   attr :instance_debug_error, :any, default: nil
   attr :instance_observability_events, :list, default: []
   attr :class, :string, default: nil
@@ -1379,23 +1725,32 @@ defmodule JidoStudio.AgentsLive do
 
         <div :if={@active_instance_id} class="mt-3 flex items-center justify-between gap-2">
           <div class="text-xs uppercase tracking-wider text-js-text-subtle">Debug Buffer</div>
-          <button
-            type="button"
-            phx-click="toggle_instance_debug"
-            class={[
-              "inline-flex items-center rounded-md px-2.5 py-1 text-xs border transition-colors",
-              if(@instance_debug_enabled?,
-                do: "border-js-info/30 bg-js-info/15 text-js-info",
-                else: "border-js-border text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-              )
-            ]}
-          >
-            <%= if @instance_debug_enabled? do %>
-              Disable Debug
-            <% else %>
-              Enable Debug
-            <% end %>
-          </button>
+          <div class="inline-flex items-center gap-1">
+            <button
+              type="button"
+              phx-click="set_debug_level"
+              phx-value-level="off"
+              class={debug_level_button_class(@instance_debug_level == "off")}
+            >
+              Off
+            </button>
+            <button
+              type="button"
+              phx-click="set_debug_level"
+              phx-value-level="on"
+              class={debug_level_button_class(@instance_debug_level == "on")}
+            >
+              On
+            </button>
+            <button
+              type="button"
+              phx-click="set_debug_level"
+              phx-value-level="verbose"
+              class={debug_level_button_class(@instance_debug_level == "verbose")}
+            >
+              Verbose
+            </button>
+          </div>
         </div>
 
         <p
@@ -2122,6 +2477,12 @@ defmodule JidoStudio.AgentsLive do
         |> assign(:instance_telemetry_events, [])
         |> assign(:instance_debug_error, nil)
         |> assign(:instance_debug_enabled?, false)
+        |> assign(:instance_debug_level, "off")
+        |> assign(:subagents, [])
+        |> assign(:tasks, [])
+        |> assign(:delegation_graph, %{nodes: [], edges: []})
+        |> assign(:tool_insights, [])
+        |> assign(:middleware_snapshots, [])
 
       true ->
         preview =
@@ -2134,7 +2495,49 @@ defmodule JidoStudio.AgentsLive do
 
         runtime_status = instance_runtime_status(%{pid: pid})
         debug_enabled = instance_debug_enabled(%{pid: pid})
+        debug_level = infer_debug_level(debug_enabled, socket.assigns[:instance_debug_level])
         presenter = socket.assigns[:presenter] || Default
+        scope = socket.assigns[:scope_filters] || %{}
+
+        subagents =
+          if Delegation.enabled?() do
+            Delegation.list_subagents(instance_id, scope: scope, limit: 200)
+          else
+            []
+          end
+
+        tasks =
+          if Delegation.enabled?() do
+            Delegation.list_tasks(instance_id, scope: scope, limit: 300)
+          else
+            []
+          end
+
+        latest_trace_id =
+          preview
+          |> Map.get(:events, [])
+          |> Enum.find_value(fn event -> event[:trace_id] end)
+
+        delegation_graph =
+          if Delegation.enabled?() and is_binary(latest_trace_id) do
+            Delegation.delegation_graph(latest_trace_id, limit: 800)
+          else
+            %{nodes: [], edges: []}
+          end
+
+        tool_insights =
+          if Delegation.enabled?() do
+            Delegation.list_tool_runs(instance_id, limit: 120)
+          else
+            []
+          end
+
+        middleware_snapshots =
+          if Delegation.enabled?() do
+            Delegation.list_middleware_snapshots(instance_id, limit: 40)
+          else
+            []
+          end
 
         view_model =
           presenter_view_model(
@@ -2157,10 +2560,16 @@ defmodule JidoStudio.AgentsLive do
         socket
         |> assign(:runtime_status, runtime_status)
         |> assign(:instance_debug_enabled?, debug_enabled)
+        |> assign(:instance_debug_level, debug_level)
         |> assign(:instance_observability_events, Map.get(preview, :events, []))
         |> assign(:instance_debug_events, Map.get(preview, :debug_events, []))
         |> assign(:instance_telemetry_events, Map.get(preview, :telemetry_events, []))
         |> assign(:instance_debug_error, Map.get(preview, :debug_error))
+        |> assign(:subagents, subagents)
+        |> assign(:tasks, tasks)
+        |> assign(:delegation_graph, delegation_graph)
+        |> assign(:tool_insights, tool_insights)
+        |> assign(:middleware_snapshots, middleware_snapshots)
         |> assign(:detail_tabs, tabs)
         |> assign(:detail_tab, preserve_detail_tab(socket.assigns[:detail_tab], tabs))
         |> assign(:sections_by_tab, Map.get(view_model, :sections_by_tab, %{}))
@@ -2395,6 +2804,186 @@ defmodule JidoStudio.AgentsLive do
 
   defp format_event_timestamp(_), do: "--:--:--"
 
+  defp setup_live_ops(socket) do
+    enabled? = LiveOps.enabled?()
+    presence? = LiveOps.presence_available?()
+    realtime? = enabled? and presence?
+
+    if connected?(socket) and enabled? do
+      _ = LiveOps.subscribe_agent_list(socket.assigns[:scope_filters] || %{})
+    end
+
+    if connected?(socket) and not realtime? do
+      :timer.send_interval(2000, self(), :refresh_instance_observability)
+    end
+
+    socket
+    |> assign(:live_ops_enabled?, enabled?)
+    |> assign(:live_ops_presence?, presence?)
+    |> assign(:live_ops_realtime?, realtime?)
+  end
+
+  defp maybe_subscribe_live_ops(socket, active_instance_id, scope_filters) do
+    if connected?(socket) and socket.assigns[:live_ops_enabled?] and is_binary(active_instance_id) do
+      _ = LiveOps.subscribe_agent(active_instance_id, scope_filters)
+    end
+
+    socket
+  end
+
+  defp normalize_scope_filters(scope_params) when is_map(scope_params) do
+    %{
+      project_id: normalize_scope_value(scope_params["project_id"] || scope_params[:project_id]),
+      user_id: normalize_scope_value(scope_params["user_id"] || scope_params[:user_id]),
+      agent_id: normalize_scope_value(scope_params["agent_id"] || scope_params[:agent_id])
+    }
+  end
+
+  defp normalize_scope_filters(_), do: %{project_id: nil, user_id: nil, agent_id: nil}
+
+  defp merge_scope_filters(existing, nil) when is_map(existing), do: existing
+
+  defp merge_scope_filters(existing, scope_params) when is_map(existing) do
+    incoming = normalize_scope_filters(scope_params)
+
+    if incoming.project_id || incoming.user_id || incoming.agent_id do
+      incoming
+    else
+      existing
+    end
+  end
+
+  defp merge_scope_filters(_, scope_params), do: normalize_scope_filters(scope_params)
+
+  defp normalize_scope_value(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_scope_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_scope_value(_), do: nil
+
+  defp filter_agents_by_scope(agents, nil), do: agents
+
+  defp filter_agents_by_scope(agents, scope_filters)
+       when is_list(agents) and is_map(scope_filters) do
+    agent_id_query = normalize_scope_value(scope_filters.agent_id)
+    scoped_instance_ids = scope_candidate_instance_ids(scope_filters)
+
+    Enum.filter(agents, fn agent ->
+      running_instances = agent.running_instances || []
+      instance_ids = Enum.map(running_instances, &to_string(&1.id))
+
+      agent_match? =
+        case agent_id_query do
+          nil ->
+            true
+
+          query ->
+            String.contains?(String.downcase(agent.slug || ""), String.downcase(query)) or
+              String.contains?(String.downcase(agent.name || ""), String.downcase(query)) or
+              Enum.any?(
+                instance_ids,
+                &String.contains?(String.downcase(&1), String.downcase(query))
+              )
+        end
+
+      scope_match? =
+        case scoped_instance_ids do
+          :all ->
+            true
+
+          ids when is_struct(ids, MapSet) ->
+            if MapSet.size(ids) > 0 do
+              Enum.any?(instance_ids, &MapSet.member?(ids, &1))
+            else
+              false
+            end
+
+          _ ->
+            true
+        end
+
+      agent_match? and scope_match?
+    end)
+  end
+
+  defp filter_agents_by_scope(agents, _), do: agents
+
+  defp scope_candidate_instance_ids(scope_filters) do
+    project_id = normalize_scope_value(scope_filters.project_id)
+    user_id = normalize_scope_value(scope_filters.user_id)
+
+    if is_nil(project_id) and is_nil(user_id) do
+      :all
+    else
+      TraceBuffer.events(2_000)
+      |> Enum.reduce(MapSet.new(), fn event, acc ->
+        scope = event[:scope] || event[:metadata] || %{}
+        event_project_id = scope[:project_id] || scope["project_id"]
+        event_user_id = scope[:user_id] || scope["user_id"]
+        agent_id = event[:agent_id] || event[:instance_id]
+
+        project_ok = is_nil(project_id) or to_string(event_project_id) == project_id
+        user_ok = is_nil(user_id) or to_string(event_user_id) == user_id
+
+        if project_ok and user_ok and is_binary(agent_id) do
+          MapSet.put(acc, agent_id)
+        else
+          acc
+        end
+      end)
+    end
+  end
+
+  defp scope_filters_match?(_event_scope, nil), do: true
+
+  defp scope_filters_match?(event_scope, scope_filters) when is_map(scope_filters) do
+    scope =
+      cond do
+        is_map(event_scope) -> event_scope
+        is_list(event_scope) -> Map.new(event_scope)
+        true -> %{}
+      end
+
+    project_id = normalize_scope_value(scope_filters.project_id)
+    user_id = normalize_scope_value(scope_filters.user_id)
+
+    project_ok =
+      is_nil(project_id) or to_string(scope[:project_id] || scope["project_id"]) == project_id
+
+    user_ok = is_nil(user_id) or to_string(scope[:user_id] || scope["user_id"]) == user_id
+    project_ok and user_ok
+  end
+
+  defp scope_filters_match?(_, _), do: true
+
+  defp infer_debug_level(false, _current), do: "off"
+  defp infer_debug_level(true, "verbose"), do: "verbose"
+  defp infer_debug_level(true, _), do: "on"
+
+  defp normalize_debug_level(level, true) when level in ["on", "verbose"], do: level
+  defp normalize_debug_level(_level, true), do: "on"
+  defp normalize_debug_level(_level, false), do: "off"
+
+  defp debug_level_button_class(active?) do
+    if active? do
+      "inline-flex items-center rounded-md px-2.5 py-1 text-xs border border-js-info/30 bg-js-info/15 text-js-info"
+    else
+      "inline-flex items-center rounded-md px-2.5 py-1 text-xs border border-js-border text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+    end
+  end
+
+  defp task_badge_variant("error"), do: :error
+  defp task_badge_variant(:error), do: :error
+  defp task_badge_variant("ok"), do: :success
+  defp task_badge_variant(:ok), do: :success
+  defp task_badge_variant("running"), do: :info
+  defp task_badge_variant(:running), do: :info
+  defp task_badge_variant(_), do: :default
+
   defp workbench_tab_button_class(active?) do
     base =
       "inline-flex h-7 items-center justify-center whitespace-nowrap rounded-md border px-3 text-xs font-medium transition-colors"
@@ -2421,7 +3010,16 @@ defmodule JidoStudio.AgentsLive do
   defp parse_workbench_tab(panel, legacy_view \\ nil)
 
   defp parse_workbench_tab(panel, _legacy_view)
-       when panel in [:chat, :thread_context, :thread_events, :instance],
+       when panel in [
+              :chat,
+              :thread_context,
+              :thread_events,
+              :instance,
+              :sub_agents,
+              :tasks,
+              :tool_insights,
+              :middleware
+            ],
        do: panel
 
   defp parse_workbench_tab("chat", _legacy_view), do: :chat
@@ -2430,6 +3028,10 @@ defmodule JidoStudio.AgentsLive do
   defp parse_workbench_tab("thread_events", _legacy_view), do: :thread_events
   defp parse_workbench_tab("events", _legacy_view), do: :thread_events
   defp parse_workbench_tab("instance", _legacy_view), do: :instance
+  defp parse_workbench_tab("sub_agents", _legacy_view), do: :sub_agents
+  defp parse_workbench_tab("tasks", _legacy_view), do: :tasks
+  defp parse_workbench_tab("tool_insights", _legacy_view), do: :tool_insights
+  defp parse_workbench_tab("middleware", _legacy_view), do: :middleware
   defp parse_workbench_tab(_, "inspect"), do: :instance
   defp parse_workbench_tab(_, :inspect), do: :instance
   defp parse_workbench_tab(_, _), do: :chat
@@ -2456,6 +3058,10 @@ defmodule JidoStudio.AgentsLive do
   defp panel_query_value(:thread_context), do: "thread_context"
   defp panel_query_value(:thread_events), do: "thread_events"
   defp panel_query_value(:instance), do: "instance"
+  defp panel_query_value(:sub_agents), do: "sub_agents"
+  defp panel_query_value(:tasks), do: "tasks"
+  defp panel_query_value(:tool_insights), do: "tool_insights"
+  defp panel_query_value(:middleware), do: "middleware"
   defp panel_query_value(_), do: "chat"
 
   defp tab_query_value(tab) when is_atom(tab), do: Atom.to_string(tab)

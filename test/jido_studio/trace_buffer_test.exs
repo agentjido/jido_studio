@@ -4,6 +4,8 @@ defmodule JidoStudio.TraceBufferTest do
   alias JidoStudio.TraceBuffer
 
   setup do
+    ensure_started(JidoStudio.TraceBuffer, fn -> JidoStudio.TraceBuffer.start_link([]) end)
+
     table = :jido_studio_traces
 
     if :ets.whereis(table) != :undefined do
@@ -11,6 +13,19 @@ defmodule JidoStudio.TraceBufferTest do
     end
 
     :ok
+  end
+
+  defp ensure_started(name, starter) do
+    case Process.whereis(name) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case starter.() do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+        end
+    end
   end
 
   test "events/0 returns list" do

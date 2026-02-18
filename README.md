@@ -32,6 +32,29 @@ end
 
 Start your server and visit `/studio`.
 
+## Optional Extensions
+
+Studio supports optional package-specific admin pages through extensions.
+Built-in extension routes are only compiled when their backing package is available.
+
+Current built-in extension:
+
+- `jido_messaging` -> `Messaging / Rooms` page
+
+Optional extension modules can also be registered from the host app:
+
+```elixir
+config :jido_studio,
+  extension_modules: [MyAppWeb.Studio.Extensions.Custom]
+```
+
+For `jido_messaging` room listing, you can provide an explicit provider if your API differs:
+
+```elixir
+config :jido_studio,
+  messaging_room_provider: {MyApp.MessagingAdmin, :list_rooms}
+```
+
 ## Setup
 
 Use this sequence for a clean first-time setup.
@@ -68,6 +91,40 @@ Default observability persistence is ETS and needs no extra setup:
 config :jido_studio, :persistence,
   adapter: JidoStudio.Persistence.ETS,
   opts: []
+```
+
+Optional next-wave debug/observability defaults:
+
+```elixir
+config :jido_studio,
+  live_ops: [
+    enabled: true,
+    auto_follow_default: true,
+    scope_keys: [:project_id, :user_id]
+  ],
+  delegation: [
+    enabled: true
+  ],
+  tracing: [
+    hide_internal_default: true,
+    chunk_span_sampling: 1.0,
+    max_span_rows: 5_000
+  ],
+  evals: [
+    enabled: true,
+    rule_sets: [:default]
+  ]
+```
+
+If your host app uses Presence and PubSub, wire it for event-driven updates:
+
+```elixir
+config :jido_studio,
+  pubsub: MyApp.PubSub,
+  live_ops: [
+    enabled: true,
+    presence_module: MyApp.Presence
+  ]
 ```
 
 ### 3. Mount in the Phoenix router
@@ -174,9 +231,12 @@ Notes:
 ## Features
 
 - **Agents** — Browse, inspect, and chat with running agents
+- **Live Ops** — Event-driven agent updates with scope filtering and auto-follow
+- **Delegation/Tasks** — Sub-agent and task lifecycle visibility
+- **Tool/Middleware Insights** — Runtime usage + timing summaries
 - **Registry** — Discovery-powered catalog of agents/actions/sensors/plugins
 - **Threads** — Inspect persisted thread/memory entries
-- **Traces** — Trace list + span timeline explorer
+- **Traces** — Trace list, span timeline, internal-span filtering, and eval history
 - **Settings** — Configure runtime behavior
 
 ## Observability Persistence

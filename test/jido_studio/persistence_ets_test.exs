@@ -11,9 +11,7 @@ defmodule JidoStudio.PersistenceETSTest do
       opts: [event_retention: 50]
     )
 
-    if pid = Process.whereis(JidoStudio.Persistence.ETS) do
-      GenServer.stop(pid)
-    end
+    ensure_started(JidoStudio.Persistence.ETS, fn -> JidoStudio.Persistence.ETS.start_link([]) end)
 
     clear_table(:jido_studio_persistence_docs)
     clear_table(:jido_studio_persistence_events)
@@ -61,6 +59,19 @@ defmodule JidoStudio.PersistenceETSTest do
   defp clear_table(table) do
     if :ets.whereis(table) != :undefined do
       :ets.delete_all_objects(table)
+    end
+  end
+
+  defp ensure_started(name, starter) do
+    case Process.whereis(name) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case starter.() do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+        end
     end
   end
 end

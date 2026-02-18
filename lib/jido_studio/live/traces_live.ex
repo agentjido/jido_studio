@@ -4,10 +4,13 @@ defmodule JidoStudio.TracesLive do
 
   import JidoStudio.Components
 
+  alias JidoStudio.Evals
+  alias JidoStudio.TraceFilter
   alias JidoStudio.Tracing
 
   @default_range "1h"
   @default_limit 400
+  @entity_types ["all", "agent", "model", "tool", "middleware", "scheduler", "sensor", "other"]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -21,6 +24,10 @@ defmodule JidoStudio.TracesLive do
       |> assign(:trace, nil)
       |> assign(:spans, [])
       |> assign(:events, [])
+      |> assign(:entity_rollups, [])
+      |> assign(:eval_runs, [])
+      |> assign(:eval_enabled?, Evals.evals_enabled_for_ui?())
+      |> assign(:entity_types, @entity_types)
       |> assign(:available_agents, [])
 
     {:ok, socket}
@@ -51,14 +58,31 @@ defmodule JidoStudio.TracesLive do
 
         case Tracing.get_trace(trace_id) do
           {:ok, trace} ->
-            spans = Tracing.list_trace_spans(trace_id, limit: 5_000)
-            events = Tracing.list_trace_events(trace_id, order: :asc, limit: 1_500)
+            trace_filters = trace_detail_filters(filters)
+
+            spans =
+              Tracing.list_trace_spans(trace_id,
+                limit: TraceFilter.max_span_rows(),
+                filters: trace_filters
+              )
+
+            events =
+              Tracing.list_trace_events(trace_id,
+                order: :asc,
+                limit: 1_500,
+                filters: trace_filters
+              )
+
+            rollups = Tracing.trace_entity_rollups(trace_id, filters: trace_filters)
+            eval_runs = Evals.list_runs(trace_id, limit: 10)
 
             {:noreply,
              socket
              |> assign(:trace, trace)
              |> assign(:spans, spans)
-             |> assign(:events, events)}
+             |> assign(:events, events)
+             |> assign(:entity_rollups, rollups)
+             |> assign(:eval_runs, eval_runs)}
 
           _ ->
             {:noreply,
@@ -66,7 +90,9 @@ defmodule JidoStudio.TracesLive do
              |> put_flash(:error, "Trace not found")
              |> assign(:trace, nil)
              |> assign(:spans, [])
-             |> assign(:events, [])}
+             |> assign(:events, [])
+             |> assign(:entity_rollups, [])
+             |> assign(:eval_runs, [])}
         end
 
       _ ->
@@ -74,7 +100,9 @@ defmodule JidoStudio.TracesLive do
          socket
          |> assign(:trace, nil)
          |> assign(:spans, [])
-         |> assign(:events, [])}
+         |> assign(:events, [])
+         |> assign(:entity_rollups, [])
+         |> assign(:eval_runs, [])}
     end
   end
 
@@ -85,11 +113,41 @@ defmodule JidoStudio.TracesLive do
       |> Map.merge(normalize_filter_params(params))
       |> Map.update(:range, @default_range, fn value -> value || @default_range end)
 
+    path =
+      if socket.assigns.live_action == :show and is_map(socket.assigns[:trace]) do
+        trace_id = socket.assigns.trace[:trace_id] || socket.assigns.trace[:id]
+        detail_path(socket.assigns.prefix, trace_id, filters)
+      else
+        list_path(socket.assigns.prefix, filters)
+      end
+
     {:noreply,
      push_patch(socket,
-       to: list_path(socket.assigns.prefix, filters)
+       to: path
      )}
   end
+
+  @impl true
+  def handle_event("evaluate_trace", _params, %{assigns: %{trace: trace}} = socket)
+      when is_map(trace) do
+    trace_id = trace[:trace_id] || trace[:id]
+
+    case Evals.run_trace(trace_id, :default) do
+      {:ok, _run} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Trace evaluation completed.")
+         |> assign(:eval_runs, Evals.list_runs(trace_id, limit: 10))}
+
+      {:error, :disabled} ->
+        {:noreply, put_flash(socket, :error, "Trace evals are disabled in current config.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Trace evaluation failed: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("evaluate_trace", _params, socket), do: {:noreply, socket}
 
   @impl true
   def handle_info(:refresh, socket) do
@@ -112,6 +170,7 @@ defmodule JidoStudio.TracesLive do
     socket =
       if socket.assigns.live_action == :show and socket.assigns.trace do
         trace_id = socket.assigns.trace[:trace_id] || socket.assigns.trace[:id]
+        trace_filters = trace_detail_filters(filters)
 
         trace =
           case Tracing.get_trace(trace_id) do
@@ -121,8 +180,19 @@ defmodule JidoStudio.TracesLive do
 
         socket
         |> assign(:trace, trace)
-        |> assign(:spans, Tracing.list_trace_spans(trace_id, limit: 5_000))
-        |> assign(:events, Tracing.list_trace_events(trace_id, order: :asc, limit: 1_500))
+        |> assign(
+          :spans,
+          Tracing.list_trace_spans(trace_id,
+            limit: TraceFilter.max_span_rows(),
+            filters: trace_filters
+          )
+        )
+        |> assign(
+          :events,
+          Tracing.list_trace_events(trace_id, order: :asc, limit: 1_500, filters: trace_filters)
+        )
+        |> assign(:entity_rollups, Tracing.trace_entity_rollups(trace_id, filters: trace_filters))
+        |> assign(:eval_runs, Evals.list_runs(trace_id, limit: 10))
       else
         socket
       end
@@ -136,6 +206,14 @@ defmodule JidoStudio.TracesLive do
     <div class="p-6 space-y-6">
       <.page_header title="Trace Detail" subtitle="Span timeline, metadata, and correlation context">
         <:actions>
+          <button
+            :if={@trace && @eval_enabled?}
+            type="button"
+            phx-click="evaluate_trace"
+            class="inline-flex items-center gap-2 rounded-md border border-js-border px-3 py-1.5 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated transition-colors"
+          >
+            Evaluate Trace
+          </button>
           <.link
             navigate={list_path(@prefix, @filters)}
             class="inline-flex items-center gap-2 rounded-md border border-js-border px-3 py-1.5 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated transition-colors"
@@ -150,6 +228,59 @@ defmodule JidoStudio.TracesLive do
       </.card>
 
       <%= if @trace do %>
+        <.card>
+          <form phx-change="filters_change" class="grid grid-cols-1 md:grid-cols-4 gap-2">
+            <label class="text-xs text-js-text-muted">
+              Span Query
+              <input
+                type="text"
+                name="filters[query]"
+                value={@filters.query || ""}
+                placeholder="span/event/metadata text"
+                class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+              />
+            </label>
+
+            <label class="text-xs text-js-text-muted">
+              Entity Lane
+              <select
+                name="filters[entity_type]"
+                class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+              >
+                <option
+                  :for={entity_type <- @entity_types}
+                  value={entity_type}
+                  selected={entity_type == (@filters.entity_type || "all")}
+                >
+                  {String.capitalize(entity_type)}
+                </option>
+              </select>
+            </label>
+
+            <label class="text-xs text-js-text-muted flex items-end gap-2">
+              <input type="hidden" name="filters[hide_internal]" value="false" />
+              <input
+                type="checkbox"
+                name="filters[hide_internal]"
+                value="true"
+                checked={@filters.hide_internal == true}
+                class="rounded border-js-border bg-js-bg-elevated"
+              /> Hide internal spans
+            </label>
+
+            <label class="text-xs text-js-text-muted flex items-end gap-2">
+              <input type="hidden" name="filters[stream_only]" value="false" />
+              <input
+                type="checkbox"
+                name="filters[stream_only]"
+                value="true"
+                checked={@filters.stream_only == true}
+                class="rounded border-js-border bg-js-bg-elevated"
+              /> Streaming chunks only
+            </label>
+          </form>
+        </.card>
+
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
           <.card class="lg:col-span-1">
             <div class="space-y-2 text-xs text-js-text-muted">
@@ -185,13 +316,21 @@ defmodule JidoStudio.TracesLive do
                 <span class="text-js-text-subtle">Events:</span> {@trace.event_count ||
                   length(@events)}
               </div>
+              <div :if={@eval_runs != []}>
+                <span class="text-js-text-subtle">Last Eval:</span>
+                <.badge variant={if(hd(@eval_runs).status == :pass, do: :success, else: :error)}>
+                  score {hd(@eval_runs).score}
+                </.badge>
+              </div>
             </div>
           </.card>
 
           <.card class="lg:col-span-3 p-0 overflow-hidden">
             <div class="px-3 py-2 border-b border-js-border">
               <h3 class="text-sm font-medium text-js-text">Timeline</h3>
-              <p class="text-xs text-js-text-muted mt-1">Span hierarchy ordered by start time.</p>
+              <p class="text-xs text-js-text-muted mt-1">
+                Span hierarchy ordered by start time. Critical path spans are highlighted.
+              </p>
             </div>
 
             <div :if={@spans == []} class="p-4">
@@ -218,12 +357,24 @@ defmodule JidoStudio.TracesLive do
                       Duration
                     </th>
                     <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                      Entity
+                    </th>
+                    <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                      Chunk
+                    </th>
+                    <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
                       Span ID
                     </th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-js-border">
-                  <tr :for={span <- @spans} class="hover:bg-js-bg-elevated/40">
+                  <tr
+                    :for={span <- @spans}
+                    class={[
+                      "hover:bg-js-bg-elevated/40",
+                      if(span.critical_path, do: "bg-js-info/10")
+                    ]}
+                  >
                     <td class="px-3 py-2 text-xs text-js-text-muted font-mono">
                       <span style={"padding-left: #{(span.depth || 0) * 16}px"}>
                         {span.event_name}
@@ -240,6 +391,12 @@ defmodule JidoStudio.TracesLive do
                     <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">
                       {format_duration(span.duration_ms)}
                     </td>
+                    <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">
+                      {span.entity_type || "other"}
+                    </td>
+                    <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">
+                      {format_chunk(span.chunk_index, span.chunk_count)}
+                    </td>
                     <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">{span.span_id}</td>
                   </tr>
                 </tbody>
@@ -247,6 +404,35 @@ defmodule JidoStudio.TracesLive do
             </div>
           </.card>
         </div>
+
+        <.card :if={@entity_rollups != []}>
+          <h3 class="text-sm font-medium text-js-text mb-2">Entity Duration Rollups</h3>
+          <div class="flex flex-wrap gap-2">
+            <.badge
+              :for={rollup <- @entity_rollups}
+              variant={if(rollup.errors > 0, do: :warning, else: :default)}
+            >
+              {rollup.entity_type}: {format_duration(rollup.duration_ms)} ({rollup.count})
+            </.badge>
+          </div>
+        </.card>
+
+        <.card :if={@eval_runs != []}>
+          <h3 class="text-sm font-medium text-js-text mb-2">Eval History</h3>
+          <div class="space-y-2">
+            <div
+              :for={run <- @eval_runs}
+              class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2.5 py-2 text-xs"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-js-text-subtle font-mono">{format_datetime(run.inserted_at)}</span>
+                <.badge variant={if(run.status == :pass, do: :success, else: :error)}>
+                  {run.status} / {run.score}
+                </.badge>
+              </div>
+            </div>
+          </div>
+        </.card>
 
         <.card :if={@trace.error}>
           <h3 class="text-sm font-medium text-js-error mb-2">Error Payload</h3>
@@ -268,6 +454,12 @@ defmodule JidoStudio.TracesLive do
                 <.badge variant={event_badge_variant(event.type)}>{event.type || :event}</.badge>
               </div>
               <div class="mt-1 text-xs text-js-text font-mono">{event_name(event)}</div>
+              <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
+                {event.entity_type || "other"} / {event.status || "running"} / {format_chunk(
+                  event.chunk_index,
+                  event.chunk_count
+                )}
+              </div>
             </div>
           </div>
         </.card>
@@ -286,7 +478,7 @@ defmodule JidoStudio.TracesLive do
       </.page_header>
 
       <.card>
-        <form phx-change="filters_change" class="grid grid-cols-1 md:grid-cols-5 gap-2">
+        <form phx-change="filters_change" class="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-2">
           <label class="text-xs text-js-text-muted">
             Agent
             <select
@@ -348,6 +540,55 @@ defmodule JidoStudio.TracesLive do
               value={@filters.to || ""}
               class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
             />
+          </label>
+
+          <label class="text-xs text-js-text-muted">
+            Span/Event Query
+            <input
+              type="text"
+              name="filters[query]"
+              value={@filters.query || ""}
+              placeholder="tool failure, task_id..."
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+
+          <label class="text-xs text-js-text-muted">
+            Entity Type
+            <select
+              name="filters[entity_type]"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            >
+              <option
+                :for={entity_type <- @entity_types}
+                value={entity_type}
+                selected={entity_type == (@filters.entity_type || "all")}
+              >
+                {String.capitalize(entity_type)}
+              </option>
+            </select>
+          </label>
+
+          <label class="text-xs text-js-text-muted flex items-end gap-2">
+            <input type="hidden" name="filters[hide_internal]" value="false" />
+            <input
+              type="checkbox"
+              name="filters[hide_internal]"
+              value="true"
+              checked={@filters.hide_internal == true}
+              class="rounded border-js-border bg-js-bg-elevated"
+            /> Hide internal
+          </label>
+
+          <label class="text-xs text-js-text-muted flex items-end gap-2">
+            <input type="hidden" name="filters[stream_only]" value="false" />
+            <input
+              type="checkbox"
+              name="filters[stream_only]"
+              value="true"
+              checked={@filters.stream_only == true}
+              class="rounded border-js-border bg-js-bg-elevated"
+            /> Stream chunks
           </label>
         </form>
       </.card>
@@ -416,7 +657,17 @@ defmodule JidoStudio.TracesLive do
   end
 
   defp default_filters do
-    %{agent: nil, status: "all", range: @default_range, from: nil, to: nil}
+    %{
+      agent: nil,
+      status: "all",
+      range: @default_range,
+      from: nil,
+      to: nil,
+      query: nil,
+      entity_type: "all",
+      hide_internal: TraceFilter.hide_internal_default?(),
+      stream_only: false
+    }
   end
 
   defp parse_filters(params) when is_map(params) do
@@ -438,7 +689,12 @@ defmodule JidoStudio.TracesLive do
       status: normalize_status(source["status"]),
       range: normalize_range(source["range"]),
       from: normalize_optional_string(source["from"]),
-      to: normalize_optional_string(source["to"])
+      to: normalize_optional_string(source["to"]),
+      query: normalize_optional_string(source["query"]),
+      entity_type: normalize_entity_type(source["entity_type"]),
+      hide_internal:
+        normalize_checkbox(source["hide_internal"], TraceFilter.hide_internal_default?()),
+      stream_only: normalize_checkbox(source["stream_only"], false)
     }
   end
 
@@ -491,6 +747,19 @@ defmodule JidoStudio.TracesLive do
     |> maybe_put("range", if(filters.range == @default_range, do: nil, else: filters.range))
     |> maybe_put("from", if(filters.range == "custom", do: filters.from, else: nil))
     |> maybe_put("to", if(filters.range == "custom", do: filters.to, else: nil))
+    |> maybe_put("query", filters.query)
+    |> maybe_put(
+      "entity_type",
+      if(filters.entity_type in [nil, "all"], do: nil, else: filters.entity_type)
+    )
+    |> maybe_put(
+      "hide_internal",
+      if(filters.hide_internal == TraceFilter.hide_internal_default?(),
+        do: nil,
+        else: to_string(filters.hide_internal)
+      )
+    )
+    |> maybe_put("stream_only", if(filters.stream_only, do: "true", else: nil))
   end
 
   defp maybe_put(map, _key, nil), do: map
@@ -498,6 +767,16 @@ defmodule JidoStudio.TracesLive do
 
   defp decode_segment(value) when is_binary(value), do: URI.decode_www_form(value)
   defp decode_segment(_), do: ""
+
+  defp trace_detail_filters(filters) do
+    %{
+      hide_internal: filters.hide_internal,
+      entity_type: if(filters.entity_type in [nil, "all"], do: nil, else: filters.entity_type),
+      status: if(filters.status in [nil, "all"], do: nil, else: filters.status),
+      stream_only: filters.stream_only,
+      query: filters.query
+    }
+  end
 
   defp event_name(event) when is_map(event) do
     cond do
@@ -548,6 +827,33 @@ defmodule JidoStudio.TracesLive do
 
   defp format_duration(ms) when is_integer(ms) and ms >= 0, do: "#{ms}ms"
   defp format_duration(_), do: "—"
+
+  defp format_chunk(chunk_index, chunk_count)
+       when is_integer(chunk_index) and chunk_index >= 0 and is_integer(chunk_count) and
+              chunk_count > 0 do
+    "#{chunk_index + 1}/#{chunk_count}"
+  end
+
+  defp format_chunk(_, _), do: "—"
+
+  defp normalize_entity_type(nil), do: "all"
+
+  defp normalize_entity_type(value) when is_binary(value) do
+    normalized = String.downcase(String.trim(value))
+    if normalized in @entity_types, do: normalized, else: "all"
+  end
+
+  defp normalize_entity_type(_), do: "all"
+
+  defp normalize_checkbox(nil, default), do: default
+  defp normalize_checkbox(true, _default), do: true
+  defp normalize_checkbox("true", _default), do: true
+  defp normalize_checkbox("1", _default), do: true
+  defp normalize_checkbox("on", _default), do: true
+  defp normalize_checkbox(false, _default), do: false
+  defp normalize_checkbox("false", _default), do: false
+  defp normalize_checkbox("0", _default), do: false
+  defp normalize_checkbox(_, default), do: default
 
   defp normalize_optional_string(value) when is_binary(value) do
     normalized = String.trim(value)

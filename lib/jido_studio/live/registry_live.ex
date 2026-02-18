@@ -175,11 +175,26 @@ defmodule JidoStudio.RegistryLive do
     """
   end
 
-  defp list_tab_items("agents", query), do: apply_discovery(:list_agents, query)
+  defp list_tab_items("agents", query), do: list_agents(query)
   defp list_tab_items("actions", query), do: apply_discovery(:list_actions, query)
   defp list_tab_items("sensors", query), do: apply_discovery(:list_sensors, query)
   defp list_tab_items("plugins", query), do: apply_discovery(:list_plugins, query)
-  defp list_tab_items(_, query), do: apply_discovery(:list_agents, query)
+  defp list_tab_items(_, query), do: list_agents(query)
+
+  defp list_agents(query) do
+    agents = JidoStudio.AgentRegistry.list_discovered_agents()
+
+    agents =
+      if query != "" do
+        Enum.filter(agents, fn a ->
+          String.contains?(to_string(a[:name] || ""), query)
+        end)
+      else
+        agents
+      end
+
+    Enum.sort_by(agents, &to_string(&1[:name] || ""))
+  end
 
   defp apply_discovery(fun, query) do
     args = if query == "", do: [[]], else: [[name: query]]

@@ -116,6 +116,8 @@ defmodule JidoStudio.AgentRegistry do
     Jido.list_agents(jido_instance)
   rescue
     _ -> []
+  catch
+    :exit, _ -> []
   end
 
   @doc """
@@ -128,6 +130,8 @@ defmodule JidoStudio.AgentRegistry do
     Jido.agent_count(jido_instance)
   rescue
     _ -> 0
+  catch
+    :exit, _ -> 0
   end
 
   defp merge_agents(discovered, running) do
@@ -262,6 +266,8 @@ defmodule JidoStudio.AgentRegistry do
     end
   rescue
     _ -> nil
+  catch
+    :exit, _ -> nil
   end
 
   defp fallback_agent_module(%{agent: %{__struct__: module}}) when is_atom(module), do: module

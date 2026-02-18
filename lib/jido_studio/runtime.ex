@@ -21,7 +21,8 @@ defmodule JidoStudio.Runtime do
   @impl true
   def init(opts) do
     children =
-      JidoStudio.Persistence.child_specs(opts) ++
+      JidoStudio.LiveOps.child_specs(opts) ++
+        JidoStudio.Persistence.child_specs(opts) ++
         [
           {JidoStudio.Ingestor, opts},
           {JidoStudio.TraceBuffer, opts},
