@@ -4,6 +4,12 @@ Embeddable agent studio for Phoenix applications — a standalone LiveView dashb
 
 Inspired by [Mastra Studio](https://mastra.ai/docs/getting-started/studio) and modeled after [Oban Web](https://hex.pm/packages/oban_web), Jido Studio is a self-contained Hex package that mounts directly into your Phoenix router with zero asset pipeline integration.
 
+## Product Direction
+
+Use the first-principles product doc as the reference for roadmap and UX decisions:
+
+- `docs/first_principles.md`
+
 ## Installation
 
 Add `jido_studio` to your dependencies:

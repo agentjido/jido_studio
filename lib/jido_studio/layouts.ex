@@ -8,7 +8,9 @@ defmodule JidoStudio.Layouts do
 
   @doc false
   def studio(assigns) do
-    workbench_mode? = workbench_mode?(assigns[:current_path], assigns[:prefix])
+    workbench_mode? =
+      workbench_mode?(assigns[:current_path], assigns[:prefix], assigns[:route_params])
+
     extension_nav_sections = List.wrap(assigns[:extension_nav_sections])
 
     assigns =
@@ -40,14 +42,74 @@ defmodule JidoStudio.Layouts do
       <body class="h-full overflow-hidden">
         <script>
           (function() {
-            var sidebarState = localStorage.getItem('jido-studio-sidebar-state') || 'expanded';
-            var theme = localStorage.getItem('jido-studio-theme') || 'dark';
+            var BASE_MAIN_CLASS = 'flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden bg-js-bg';
+            var WORKBENCH_MAIN_CLASS = 'js-main-workbench flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden lg:overflow-hidden lg:flex lg:flex-col bg-js-bg';
 
-            document.addEventListener('DOMContentLoaded', function() {
+            function safeGet(key, fallback) {
+              try {
+                return localStorage.getItem(key) || fallback;
+              } catch (_error) {
+                return fallback;
+              }
+            }
+
+            function safeSet(key, value) {
+              try {
+                localStorage.setItem(key, value);
+              } catch (_error) {
+                // ignore storage failures
+              }
+            }
+
+            var sidebarState = safeGet('jido-studio-sidebar-state', 'expanded');
+            var theme = safeGet('jido-studio-theme', 'dark');
+
+            function normalizePath(path) {
+              return typeof path === 'string' && path !== '' ? path : '/';
+            }
+
+            function stripPrefix(path, prefix) {
+              if (typeof prefix !== 'string' || prefix === '') return path;
+              var normalizedPrefix = prefix.replace(/\/+$/, '');
+              if (normalizedPrefix === '') return path;
+
+              if (path.indexOf(normalizedPrefix) === 0) {
+                var stripped = path.slice(normalizedPrefix.length);
+                return stripped === '' ? '/' : stripped;
+              }
+
+              return path;
+            }
+
+            function isWorkbenchPath() {
+              var wrapper = document.getElementById('studio-wrapper');
+              var prefix = wrapper ? (wrapper.getAttribute('data-prefix') || '') : '';
+              var relativePath = stripPrefix(normalizePath(window.location.pathname), prefix);
+              var segments = relativePath.replace(/^\/+/, '').split('/').filter(Boolean);
+
+              return segments.length >= 3 && segments[0] === 'agents';
+            }
+
+            function applyMainMode() {
+              var main = document.getElementById('studio-main');
+              if (!main) return;
+              main.className = isWorkbenchPath() ? WORKBENCH_MAIN_CLASS : BASE_MAIN_CLASS;
+            }
+
+            function applyChromeState() {
               var wrapper = document.getElementById('studio-wrapper');
               if (wrapper) wrapper.setAttribute('data-sidebar-state', sidebarState);
               document.documentElement.setAttribute('data-theme', theme);
-            });
+              applyMainMode();
+            }
+
+            // Apply theme immediately to avoid flash on refresh.
+            document.documentElement.setAttribute('data-theme', theme);
+            applyChromeState();
+            document.addEventListener('DOMContentLoaded', applyChromeState);
+            window.addEventListener('pageshow', applyChromeState);
+            window.addEventListener('phx:page-loading-stop', applyChromeState);
+            window.addEventListener('popstate', applyChromeState);
 
             window.jidoStudio = {
               toggleSidebar: function() {
@@ -55,14 +117,16 @@ defmodule JidoStudio.Layouts do
                 if (!wrapper) return;
                 var current = wrapper.getAttribute('data-sidebar-state');
                 var next = current === 'expanded' ? 'collapsed' : 'expanded';
+                sidebarState = next;
                 wrapper.setAttribute('data-sidebar-state', next);
-                localStorage.setItem('jido-studio-sidebar-state', next);
+                safeSet('jido-studio-sidebar-state', next);
               },
               toggleTheme: function() {
                 var current = document.documentElement.getAttribute('data-theme') || 'dark';
                 var next = current === 'dark' ? 'light' : 'dark';
+                theme = next;
                 document.documentElement.setAttribute('data-theme', next);
-                localStorage.setItem('jido-studio-theme', next);
+                safeSet('jido-studio-theme', next);
               },
               setClusterNode: function(nodeValue) {
                 var url = new URL(window.location.href);
@@ -76,6 +140,7 @@ defmodule JidoStudio.Layouts do
           id="studio-wrapper"
           class="group flex h-[100dvh] max-h-[100dvh] overflow-hidden"
           data-sidebar-state="expanded"
+          data-prefix={@prefix}
         >
           <.sidebar
             current_path={@current_path}
@@ -87,7 +152,7 @@ defmodule JidoStudio.Layouts do
             cluster_status_label={@cluster_status_label}
             cluster_scope_warning={@cluster_scope_warning}
           />
-          <main class={@main_class}>
+          <main id="studio-main" class={@main_class}>
             {@inner_content}
           </main>
         </div>
@@ -409,17 +474,28 @@ defmodule JidoStudio.Layouts do
     "flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden bg-js-bg"
   end
 
-  defp workbench_mode?(current_path, prefix) do
+  defp workbench_mode?(current_path, prefix, route_params) do
     relative_path =
       current_path
       |> normalize_path()
       |> strip_prefix(prefix)
 
-    case String.split(String.trim_leading(relative_path, "/"), "/", trim: true) do
-      ["agents", _slug, _instance_id] -> true
-      _ -> false
-    end
+    path_match? =
+      case String.split(String.trim_leading(relative_path, "/"), "/", trim: true) do
+        ["agents", _slug, _instance_id] -> true
+        _ -> false
+      end
+
+    path_match? or workbench_route_params?(route_params)
   end
+
+  defp workbench_route_params?(params) when is_map(params) do
+    slug = Map.get(params, "slug") || Map.get(params, :slug)
+    instance_id = Map.get(params, "instance_id") || Map.get(params, :instance_id)
+    is_binary(slug) and slug != "" and is_binary(instance_id) and instance_id != ""
+  end
+
+  defp workbench_route_params?(_), do: false
 
   defp normalize_path(path) when is_binary(path) and path != "", do: path
   defp normalize_path(_), do: "/"

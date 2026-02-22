@@ -6,6 +6,9 @@ defmodule JidoStudio.IARoutesTest do
 
     assert html =~ "Your agent fleet at a glance"
     assert html =~ "What this page is for"
+    assert html =~ "Click to play"
+    assert html =~ "Calculator Agent"
+    assert html =~ "Open Calculator Example"
   end
 
   test "catalog route renders canonical catalog page", %{conn: conn} do

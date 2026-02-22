@@ -72,6 +72,7 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:chat_state, ChatSession.empty())
       |> assign(:chat_config, default_chat_config())
       |> assign(:chat_enabled?, false)
+      |> assign(:chat_unavailable_reason, nil)
       |> assign(:chat_pending?, false)
       |> assign(:chat_pending_message_id, nil)
       |> assign(:chat_stream, nil)
@@ -81,6 +82,7 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:thread_persistence?, ThreadsStorage.persistence_enabled?())
       |> assign(:persist_workspace_ref, nil)
       |> assign(:workbench_tab, :chat)
+      |> assign(:instance_section, :play)
       |> assign(:detail_tabs, [%{id: :overview, label: "Overview"}])
       |> assign(:detail_tab, :overview)
       |> assign(:sections_by_tab, %{})
@@ -436,8 +438,20 @@ defmodule JidoStudio.AgentsLive do
 
   @impl true
   def handle_event("select_workbench_tab", %{"panel" => panel}, socket) do
-    workbench_tab = parse_workbench_tab(panel)
-    socket = assign(socket, :workbench_tab, workbench_tab)
+    requested_tab = parse_workbench_tab(panel)
+
+    workbench_tab =
+      resolve_default_workbench_tab(
+        requested_tab,
+        socket.assigns[:interaction_model] || empty_interaction_model(),
+        socket.assigns[:chat_enabled?] == true
+      )
+
+    socket =
+      socket
+      |> assign(:workbench_tab, workbench_tab)
+      |> assign(:instance_section, section_for_workbench_tab(workbench_tab))
+      |> maybe_put_chat_redirect_flash(requested_tab, workbench_tab)
 
     if is_binary(socket.assigns.active_instance_id) and socket.assigns.agent do
       {:noreply,
@@ -448,7 +462,8 @@ defmodule JidoStudio.AgentsLive do
              socket.assigns.agent,
              socket.assigns.active_instance_id,
              workbench_tab,
-             socket.assigns.detail_tab
+             socket.assigns.detail_tab,
+             socket.assigns[:instance_section]
            )
        )}
     else
@@ -711,7 +726,12 @@ defmodule JidoStudio.AgentsLive do
         {:noreply, socket}
 
       not socket.assigns.chat_enabled? ->
-        {:noreply, socket}
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           chat_unavailable_message(socket.assigns[:chat_unavailable_reason])
+         )}
 
       true ->
         pending_content = "Thinking..."
@@ -1199,6 +1219,7 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:chat_state, ChatSession.empty())
       |> assign(:chat_config, default_chat_config())
       |> assign(:chat_enabled?, false)
+      |> assign(:chat_unavailable_reason, nil)
       |> assign(:chat_pending?, false)
       |> assign(:chat_pending_message_id, nil)
       |> assign(:chat_stream, nil)
@@ -1207,6 +1228,7 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:persisted_thread_contexts, %{})
       |> assign(:persist_workspace_ref, nil)
       |> assign(:workbench_tab, :chat)
+      |> assign(:instance_section, :play)
       |> assign(:runtime_messages, [])
       |> assign(:runtime_todos, [])
       |> assign(:instance_event_stream, [])
@@ -1249,6 +1271,8 @@ defmodule JidoStudio.AgentsLive do
     jido_instance = socket.assigns[:jido_instance]
     requested_instance_id = Map.get(params, "instance_id")
     requested_workbench_tab = requested_workbench_tab(params)
+    explicit_workbench_tab? = not is_nil(requested_workbench_tab)
+    requested_section = parse_instance_section(Map.get(params, "section"))
     scope_filters = merge_scope_filters(socket.assigns[:scope_filters], Map.get(params, "scope"))
 
     case AgentRegistry.get_agent(
@@ -1355,10 +1379,25 @@ defmodule JidoStudio.AgentsLive do
             supported?: ChatRuntime.supports?(agent.module)
           )
 
-        chat_enabled = chat_config.enabled and is_pid(active_instance_pid)
+        {chat_enabled, chat_unavailable_reason} =
+          resolve_chat_availability(chat_config, runtime_status, active_instance_pid)
+
+        requested_workbench_tab =
+          requested_workbench_tab || default_workbench_tab_for_section(requested_section)
 
         workbench_tab =
           resolve_default_workbench_tab(requested_workbench_tab, interaction_model, chat_enabled)
+
+        instance_section =
+          if explicit_workbench_tab? do
+            section_for_workbench_tab(workbench_tab)
+          else
+            if workbench_tab_in_section?(workbench_tab, requested_section) do
+              requested_section
+            else
+              section_for_workbench_tab(workbench_tab)
+            end
+          end
 
         tabs =
           view_model
@@ -1389,8 +1428,10 @@ defmodule JidoStudio.AgentsLive do
         )
         |> assign(:chat_config, chat_config)
         |> assign(:chat_enabled?, chat_enabled)
+        |> assign(:chat_unavailable_reason, chat_unavailable_reason)
         |> assign(:interaction_model, interaction_model)
         |> assign(:workbench_tab, workbench_tab)
+        |> assign(:instance_section, instance_section)
         |> assign(:runner_form, sync_runner_form(socket.assigns[:runner_form], interaction_model))
         |> assign(:runner_result, nil)
         |> assign(:runner_history, current_runner_history(socket, active_instance_id))
@@ -1577,7 +1618,9 @@ defmodule JidoStudio.AgentsLive do
       )
       when not is_nil(agent) and action == :show and not is_nil(active_instance_id) do
     workbench_tab = assigns.workbench_tab || :chat
-    summary_visible? = workbench_tab != :instance
+
+    instance_section =
+      parse_instance_section(assigns.instance_section || section_for_workbench_tab(workbench_tab))
 
     context_sections =
       thread_context_sections(
@@ -1625,9 +1668,15 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:selected_runner_target, RunnerForm.selected_target(assigns.runner_form))
       |> assign(:expanded_event_ids, assigns.expanded_event_ids || MapSet.new())
       |> assign(:workbench_tab, workbench_tab)
-      |> assign(:summary_visible?, summary_visible?)
-      |> assign(:workbench_grid_class, workbench_grid_class(summary_visible?))
-      |> assign(:threads_rail_class, workbench_threads_rail_class(summary_visible?))
+      |> assign(:instance_section, instance_section)
+      |> assign(:section_tabs, workbench_tabs_for_section(instance_section))
+      |> assign(
+        :chat_tab_disabled?,
+        not assigns.chat_enabled? and assigns.interaction_model.runner_supported? == true
+      )
+      # Keep a stable three-rail layout so Configure/Observe don't drop the right summary pane.
+      |> assign(:workbench_grid_class, workbench_grid_class(true))
+      |> assign(:threads_rail_class, workbench_threads_rail_class(true))
       |> assign(:thread_context_sections, context_sections)
       |> assign(:thread_events, thread_events)
       |> assign(:thread_scope_id, thread_scope_id)
@@ -1643,7 +1692,8 @@ defmodule JidoStudio.AgentsLive do
           assigns.prefix,
           agent,
           assigns.running_instances,
-          assigns.active_instance_id
+          assigns.active_instance_id,
+          instance_section
         )
       )
       |> assign(:summary_meta, summary_meta(assigns.runtime_status, assigns.ui_model))
@@ -1653,7 +1703,7 @@ defmodule JidoStudio.AgentsLive do
       class="p-3 lg:p-4 space-y-2 lg:flex-1 lg:min-h-0 lg:overflow-hidden lg:flex lg:flex-col"
       id="agent-workbench"
     >
-      <div class="flex items-center justify-between border-b border-js-border pb-3 gap-3 shrink-0">
+      <div class="js-agent-topbar flex items-center justify-between gap-3 shrink-0">
         <div class="flex items-center gap-2 text-sm text-js-text-muted">
           <.link navigate={scoped_path(@prefix <> "/agents")} class="hover:text-js-text">
             Agents
@@ -1693,103 +1743,70 @@ defmodule JidoStudio.AgentsLive do
 
         <div class="min-h-[22rem] lg:min-h-0 lg:h-full flex flex-col gap-1.5">
           <div class="px-0.5">
-            <div class="inline-flex min-h-9 w-full flex-wrap items-center gap-1 rounded-lg border border-js-border bg-js-bg-elevated px-1 py-1">
-              <button
-                type="button"
-                phx-click="select_workbench_tab"
-                phx-value-panel="chat"
-                class={workbench_tab_button_class(@workbench_tab == :chat)}
-              >
-                Chat
-              </button>
-              <button
-                type="button"
-                phx-click="select_workbench_tab"
-                phx-value-panel="interact"
-                class={workbench_tab_button_class(@workbench_tab == :interact)}
-              >
-                Interact
-              </button>
-              <button
-                type="button"
-                phx-click="select_workbench_tab"
-                phx-value-panel="messages"
-                class={workbench_tab_button_class(@workbench_tab == :messages)}
-              >
-                Messages
-              </button>
-              <button
-                type="button"
-                phx-click="select_workbench_tab"
-                phx-value-panel="events"
-                class={workbench_tab_button_class(@workbench_tab == :events)}
-              >
-                Events
-              </button>
-              <button
-                type="button"
-                phx-click="select_workbench_tab"
-                phx-value-panel="todos"
-                class={workbench_tab_button_class(@workbench_tab == :todos)}
-              >
-                TODOs
-              </button>
-              <button
-                type="button"
-                phx-click="select_workbench_tab"
-                phx-value-panel="thread_context"
-                class={workbench_tab_button_class(@workbench_tab == :thread_context)}
-              >
-                Thread Context
-              </button>
-              <button
-                type="button"
-                phx-click="select_workbench_tab"
-                phx-value-panel="thread_events"
-                class={workbench_tab_button_class(@workbench_tab == :thread_events)}
-              >
-                Thread Events
-              </button>
-              <button
-                type="button"
-                phx-click="select_workbench_tab"
-                phx-value-panel="instance"
-                class={workbench_tab_button_class(@workbench_tab == :instance)}
-              >
-                Instance
-              </button>
-              <button
-                type="button"
-                phx-click="select_workbench_tab"
-                phx-value-panel="sub_agents"
-                class={workbench_tab_button_class(@workbench_tab == :sub_agents)}
-              >
-                Sub-Agents
-              </button>
-              <button
-                type="button"
-                phx-click="select_workbench_tab"
-                phx-value-panel="tasks"
-                class={workbench_tab_button_class(@workbench_tab == :tasks)}
-              >
-                Tasks
-              </button>
-              <button
-                type="button"
-                phx-click="select_workbench_tab"
-                phx-value-panel="tool_insights"
-                class={workbench_tab_button_class(@workbench_tab == :tool_insights)}
-              >
-                Tool Insights
-              </button>
-              <button
-                type="button"
-                phx-click="select_workbench_tab"
-                phx-value-panel="middleware"
-                class={workbench_tab_button_class(@workbench_tab == :middleware)}
-              >
-                Middleware
-              </button>
+            <div class="js-instance-menu">
+              <div class="js-instance-menu-header">
+                <div class="js-instance-menu-title-block">
+                  <p class="js-instance-menu-kicker">Instance Menu</p>
+                  <p class="js-instance-menu-description">
+                    {section_description(@instance_section)}
+                  </p>
+                </div>
+                <span class="js-instance-menu-current">
+                  {String.capitalize(section_query_value(@instance_section))}
+                </span>
+              </div>
+
+              <div class="js-instance-menu-sections">
+                <.link
+                  :for={section <- workbench_sections()}
+                  patch={workbench_section_path(@prefix, @agent, @active_instance_id, section.id)}
+                  class={workbench_section_button_class(@instance_section == section.id)}
+                >
+                  <span class="js-instance-menu-item-icon">
+                    <%= case section.id do %>
+                      <% :play -> %>
+                        <Lucideicons.message_circle class="w-3.5 h-3.5" />
+                      <% :observe -> %>
+                        <Lucideicons.activity class="w-3.5 h-3.5" />
+                      <% :configure -> %>
+                        <Lucideicons.wrench class="w-3.5 h-3.5" />
+                    <% end %>
+                  </span>
+                  <span class="js-instance-menu-item-label">{section.label}</span>
+                </.link>
+              </div>
+
+              <div class="js-instance-menu-tabs">
+                <span
+                  :for={tab <- @section_tabs}
+                  :if={tab.id == :chat and @chat_tab_disabled?}
+                  class={[
+                    workbench_tab_button_class(false),
+                    "is-disabled"
+                  ]}
+                  title="Chat unavailable for this instance"
+                >
+                  {tab.label}
+                </span>
+
+                <.link
+                  :for={tab <- @section_tabs}
+                  :if={not (tab.id == :chat and @chat_tab_disabled?)}
+                  patch={
+                    workbench_path(
+                      @prefix,
+                      @agent,
+                      @active_instance_id,
+                      tab.id,
+                      @detail_tab,
+                      @instance_section
+                    )
+                  }
+                  class={workbench_tab_button_class(@workbench_tab == tab.id)}
+                >
+                  {tab.label}
+                </.link>
+              </div>
             </div>
           </div>
 
@@ -2653,7 +2670,7 @@ defmodule JidoStudio.AgentsLive do
                   class="rounded-md border border-js-info/40 bg-js-info/10 px-3 py-2 text-xs text-js-info flex items-center justify-between gap-2"
                 >
                   <span>
-                    This instance does not expose chat. Use signal/action interaction instead.
+                    {chat_unavailable_message(@chat_unavailable_reason)}
                   </span>
                   <button
                     type="button"
@@ -2686,7 +2703,6 @@ defmodule JidoStudio.AgentsLive do
         </div>
 
         <.summary_pane
-          :if={@summary_visible?}
           class="min-h-[16rem] lg:min-h-0 lg:h-full"
           agent={@agent}
           module_path={@module_path}
@@ -3192,19 +3208,24 @@ defmodule JidoStudio.AgentsLive do
 
   defp agent_module_path(prefix, agent), do: scoped_path("#{prefix}/agents/#{agent.slug}")
 
-  defp agent_instance_path(prefix, agent, instance_id) do
-    scoped_path("#{prefix}/agents/#{agent.slug}/#{URI.encode_www_form(instance_id)}")
+  defp agent_instance_path(prefix, agent, instance_id, section \\ :play) do
+    workbench_section_path(prefix, agent, instance_id, section)
   end
 
-  defp instance_links(prefix, agent, running_instances, active_instance_id) do
+  defp instance_links(prefix, agent, running_instances, active_instance_id, section) do
     links =
       Enum.map(running_instances, fn instance ->
-        %{id: instance.id, path: agent_instance_path(prefix, agent, instance.id)}
+        %{id: instance.id, path: agent_instance_path(prefix, agent, instance.id, section)}
       end)
 
     if is_binary(active_instance_id) and not Enum.any?(links, &(&1.id == active_instance_id)) do
       links ++
-        [%{id: active_instance_id, path: agent_instance_path(prefix, agent, active_instance_id)}]
+        [
+          %{
+            id: active_instance_id,
+            path: agent_instance_path(prefix, agent, active_instance_id, section)
+          }
+        ]
     else
       links
     end
@@ -3284,7 +3305,7 @@ defmodule JidoStudio.AgentsLive do
 
   defp active_instance_path(prefix, %{agent_slug: slug, instance_id: instance_id})
        when is_binary(prefix) and is_binary(slug) and is_binary(instance_id) do
-    scoped_path("#{prefix}/agents/#{slug}/#{URI.encode_www_form(instance_id)}")
+    scoped_path("#{prefix}/agents/#{slug}/#{URI.encode_www_form(instance_id)}/play")
   end
 
   defp active_instance_path(_prefix, _row), do: nil
@@ -3520,6 +3541,89 @@ defmodule JidoStudio.AgentsLive do
     do: timeout_ms
 
   defp normalize_chat_timeout(_), do: 30_000
+
+  defp resolve_chat_availability(chat_config, runtime_status, pid) do
+    cond do
+      not is_pid(pid) ->
+        {false, :instance_unavailable}
+
+      chat_config.enabled != true ->
+        {false, :unsupported}
+
+      not chat_credentials_available?(chat_config, runtime_status) ->
+        {false, :credentials_missing}
+
+      true ->
+        {true, nil}
+    end
+  end
+
+  defp chat_credentials_available?(chat_config, runtime_status) do
+    provider =
+      runtime_status
+      |> runtime_model_label()
+      |> provider_from_model_label() ||
+        chat_config
+        |> Map.get(:model_label)
+        |> provider_from_model_label()
+
+    provider_credentials_available?(provider)
+  end
+
+  defp provider_from_model_label(model_label) when is_binary(model_label) do
+    case String.split(String.trim(model_label), ":", parts: 2) do
+      [provider, _model] ->
+        provider
+        |> String.trim()
+        |> String.downcase()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp provider_from_model_label(_), do: nil
+
+  defp runtime_model_label(%{snapshot: %{details: details}}) when is_map(details) do
+    details[:model] || details["model"]
+  end
+
+  defp runtime_model_label(_), do: nil
+
+  defp provider_credentials_available?(provider) when provider in [nil, "", "ollama", "custom"],
+    do: true
+
+  defp provider_credentials_available?("anthropic"),
+    do: env_present?(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"])
+
+  defp provider_credentials_available?("openai"), do: env_present?(["OPENAI_API_KEY"])
+  defp provider_credentials_available?("groq"), do: env_present?(["GROQ_API_KEY"])
+  defp provider_credentials_available?(_), do: true
+
+  defp env_present?(env_vars) when is_list(env_vars) do
+    Enum.any?(env_vars, fn var ->
+      case System.get_env(var) do
+        value when is_binary(value) -> String.trim(value) != ""
+        _ -> false
+      end
+    end)
+  end
+
+  defp chat_unavailable_message(:credentials_missing) do
+    "Chat needs provider credentials for this instance. Use Interact or configure API keys."
+  end
+
+  defp chat_unavailable_message(:instance_unavailable) do
+    "Chat is unavailable because this instance is offline."
+  end
+
+  defp chat_unavailable_message(_), do: "This instance does not expose chat right now."
+
+  defp maybe_put_chat_redirect_flash(socket, :chat, :interact) do
+    put_flash(socket, :info, "Chat is unavailable for this instance. Opened Interact instead.")
+  end
+
+  defp maybe_put_chat_redirect_flash(socket, _requested_tab, _resolved_tab), do: socket
 
   defp stream_since_entry_count(pid) when is_pid(pid) do
     case ChatRuntime.thread_entry_count(pid) do

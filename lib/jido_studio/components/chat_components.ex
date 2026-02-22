@@ -13,16 +13,16 @@ defmodule JidoStudio.Components.ChatComponents do
   def chat_threads_rail(assigns) do
     ~H"""
     <section class={[
-      "bg-js-card border border-js-border rounded-lg overflow-hidden flex flex-col min-h-0",
+      "js-threads-rail bg-js-card border border-js-border rounded-lg overflow-hidden flex flex-col min-h-0",
       @class
     ]}>
-      <div class="flex items-center justify-between px-3 py-2 border-b border-js-border">
+      <div class="js-threads-rail-header flex items-center justify-between px-3 py-2 border-b border-js-border">
         <h3 class="text-sm font-medium text-js-text">Threads</h3>
         <button
           type="button"
           phx-click="new_thread"
           disabled={@chat_pending?}
-          class="inline-flex items-center gap-1 rounded-md bg-js-primary px-2.5 py-1 text-xs font-medium text-js-primary-foreground hover:brightness-110 disabled:opacity-50 disabled:pointer-events-none"
+          class="js-threads-rail-new inline-flex items-center gap-1 rounded-md bg-js-primary px-2.5 py-1 text-xs font-medium text-js-primary-foreground hover:brightness-110 disabled:opacity-50 disabled:pointer-events-none"
         >
           <Lucideicons.plus class="w-3.5 h-3.5" /> New Chat
         </button>
@@ -40,9 +40,9 @@ defmodule JidoStudio.Components.ChatComponents do
             phx-click="select_thread"
             phx-value-id={thread.id}
             class={[
-              "w-full text-left rounded-md border px-2.5 py-2 transition-colors",
+              "js-thread-row w-full text-left rounded-md border px-2.5 py-2 transition-colors",
               if(thread.id == @active_thread_id,
-                do: "border-js-primary bg-js-bg-elevated text-js-text",
+                do: "is-active border-js-primary bg-js-bg-elevated text-js-text",
                 else:
                   "border-js-border/40 text-js-text-muted hover:border-js-border hover:text-js-text"
               )
@@ -89,10 +89,10 @@ defmodule JidoStudio.Components.ChatComponents do
   def chat_conversation_panel(assigns) do
     ~H"""
     <section class={[
-      "bg-js-card border border-js-border rounded-lg overflow-hidden flex flex-col min-h-0",
+      "js-conversation-panel bg-js-card border border-js-border rounded-lg overflow-hidden flex flex-col min-h-0",
       @class
     ]}>
-      <div class="px-3 py-2 border-b border-js-border flex items-center justify-between gap-2">
+      <div class="js-conversation-header px-3 py-2 border-b border-js-border flex items-center justify-between gap-2">
         <h3 class="text-sm font-medium text-js-text truncate">{@thread_name}</h3>
         <span
           :if={@chat_pending?}
@@ -102,7 +102,7 @@ defmodule JidoStudio.Components.ChatComponents do
         </span>
       </div>
 
-      <div class="px-3 py-3 bg-js-bg overflow-y-auto js-scroll flex-1 min-h-0">
+      <div class="js-conversation-messages px-3 py-3 bg-js-bg overflow-y-auto js-scroll flex-1 min-h-0">
         <%= if @active_messages == [] do %>
           <div class="h-full min-h-[18rem] flex items-center justify-center text-center">
             <div>
@@ -120,7 +120,7 @@ defmodule JidoStudio.Components.ChatComponents do
               class={["flex", if(msg.role == :user, do: "justify-end", else: "justify-start")]}
             >
               <div class={[
-                "max-w-2xl rounded-lg border px-3 py-2 text-sm",
+                "js-message-bubble max-w-2xl rounded-xl border px-3 py-2 text-sm",
                 message_bubble_classes(msg)
               ]}>
                 <div
@@ -146,7 +146,7 @@ defmodule JidoStudio.Components.ChatComponents do
         <% end %>
       </div>
 
-      <div class="border-t border-js-border p-3 bg-js-card">
+      <div class="js-conversation-composer border-t border-js-border p-3 bg-js-card">
         <form
           phx-change="update_draft"
           phx-submit="send_message"
@@ -172,7 +172,7 @@ defmodule JidoStudio.Components.ChatComponents do
                 <select
                   name="provider"
                   value={@provider_value}
-                  disabled={@chat_pending?}
+                  disabled={not @chat_enabled? or @chat_pending?}
                   class="js-composer-select border-0 bg-transparent text-sm text-js-text outline-none"
                 >
                   <option :for={provider <- @provider_options} value={provider}>
@@ -185,7 +185,7 @@ defmodule JidoStudio.Components.ChatComponents do
                 <select
                   name="model"
                   value={@model_value}
-                  disabled={@chat_pending?}
+                  disabled={not @chat_enabled? or @chat_pending?}
                   class="js-composer-select w-full border-0 bg-transparent text-sm text-js-text outline-none"
                 >
                   <option

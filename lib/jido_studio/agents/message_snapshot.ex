@@ -22,10 +22,8 @@ defmodule JidoStudio.Agents.MessageSnapshot do
     details = snapshot_details(runtime_status)
 
     value =
-      strategy_state[:todos] ||
-        strategy_state["todos"] ||
-        details[:todos] ||
-        details["todos"]
+      field(strategy_state, :todos) ||
+        field(details, :todos)
 
     normalize_todos(value)
   end
@@ -38,17 +36,17 @@ defmodule JidoStudio.Agents.MessageSnapshot do
     |> Enum.with_index(1)
     |> Enum.map(fn {entry, idx} ->
       role = role(entry)
-      tool_calls = normalize_tool_calls(entry[:tool_calls] || entry["tool_calls"])
-      tool_results = normalize_tool_results(entry[:tool_results] || entry["tool_results"])
+      tool_calls = normalize_tool_calls(field(entry, :tool_calls))
+      tool_results = normalize_tool_results(field(entry, :tool_results))
 
       %{
         id: idx,
         role: role,
-        status: normalize_optional_string(entry[:status] || entry["status"]),
-        content: normalize_content(entry[:content] || entry["content"]),
+        status: normalize_optional_string(field(entry, :status)),
+        content: normalize_content(field(entry, :content)),
         tool_calls: tool_calls,
         tool_results: inferred_tool_results(role, tool_results, entry),
-        metadata: normalize_metadata(entry[:metadata] || entry["metadata"])
+        metadata: normalize_metadata(field(entry, :metadata))
       }
     end)
   end
@@ -56,42 +54,33 @@ defmodule JidoStudio.Agents.MessageSnapshot do
   def normalize_thread_entries(_), do: []
 
   defp thread_entries_from_status(status) when is_map(status) do
-    strategy_state = strategy_state(status)
-
-    entries =
-      strategy_state
-      |> Map.get(:thread, Map.get(strategy_state, "thread"))
-      |> case do
-        %{entries: entries} when is_list(entries) -> entries
-        %{"entries" => entries} when is_list(entries) -> entries
-        _ -> []
-      end
-
-    Enum.reverse(entries)
+    status
+    |> strategy_state()
+    |> field(:thread, %{})
+    |> field(:entries, [])
+    |> Enum.reverse()
   end
 
   defp thread_entries_from_status(_), do: []
 
   defp strategy_state(status) when is_map(status) do
     status
-    |> Map.get(:raw_state, %{})
-    |> Map.get(:__strategy__, %{})
+    |> field(:raw_state, %{})
+    |> field(:__strategy__, %{})
   end
 
   defp strategy_state(_), do: %{}
 
   defp snapshot_details(status) when is_map(status) do
-    case Map.get(status, :snapshot, %{}) do
-      %{details: details} when is_map(details) -> details
-      %{"details" => details} when is_map(details) -> details
-      _ -> %{}
-    end
+    status
+    |> field(:snapshot, %{})
+    |> field(:details, %{})
   end
 
   defp snapshot_details(_), do: %{}
 
   defp role(entry) when is_map(entry) do
-    case entry[:role] || entry["role"] do
+    case field(entry, :role) do
       value when value in [:assistant, "assistant"] -> :assistant
       value when value in [:user, "user"] -> :user
       value when value in [:tool, "tool"] -> :tool
@@ -109,14 +98,14 @@ defmodule JidoStudio.Agents.MessageSnapshot do
       %{type: type} = part ->
         %{
           type: normalize_content_type(type),
-          content: normalize_optional_string(part[:content] || part["content"]),
+          content: normalize_optional_string(field(part, :content)),
           data: part
         }
 
       %{"type" => type} = part ->
         %{
           type: normalize_content_type(type),
-          content: normalize_optional_string(part[:content] || part["content"]),
+          content: normalize_optional_string(field(part, :content)),
           data: part
         }
 
@@ -139,10 +128,9 @@ defmodule JidoStudio.Agents.MessageSnapshot do
     tool_calls
     |> Enum.map(fn call ->
       %{
-        call_id:
-          normalize_optional_string(call[:id] || call["id"] || call[:call_id] || call["call_id"]),
-        name: normalize_optional_string(call[:name] || call["name"]) || "tool",
-        arguments: call[:arguments] || call["arguments"] || %{}
+        call_id: normalize_optional_string(field(call, :id) || field(call, :call_id)),
+        name: normalize_optional_string(field(call, :name)) || "tool",
+        arguments: field(call, :arguments) || %{}
       }
     end)
     |> Enum.reject(&is_nil(&1.call_id))
@@ -154,12 +142,10 @@ defmodule JidoStudio.Agents.MessageSnapshot do
     Enum.map(results, fn result ->
       %{
         tool_call_id:
-          normalize_optional_string(
-            result[:tool_call_id] || result["tool_call_id"] || result[:id] || result["id"]
-          ),
-        name: normalize_optional_string(result[:name] || result["name"]) || "Result",
+          normalize_optional_string(field(result, :tool_call_id) || field(result, :id)),
+        name: normalize_optional_string(field(result, :name)) || "Result",
         status: normalize_result_status(result),
-        content: result[:content] || result["content"] || result
+        content: field(result, :content, result)
       }
     end)
   end
@@ -167,12 +153,12 @@ defmodule JidoStudio.Agents.MessageSnapshot do
   defp normalize_tool_results(_), do: []
 
   defp inferred_tool_results(:tool, [], entry) do
-    content = entry[:content] || entry["content"]
+    content = field(entry, :content)
 
     [
       %{
-        tool_call_id: normalize_optional_string(entry[:tool_call_id] || entry["tool_call_id"]),
-        name: normalize_optional_string(entry[:name] || entry["name"]) || "Result",
+        tool_call_id: normalize_optional_string(field(entry, :tool_call_id)),
+        name: normalize_optional_string(field(entry, :name)) || "Result",
         status: tool_status_from_content(content),
         content: content
       }
@@ -182,9 +168,9 @@ defmodule JidoStudio.Agents.MessageSnapshot do
   defp inferred_tool_results(_role, results, _entry), do: results
 
   defp normalize_result_status(result) when is_map(result) do
-    case result[:status] || result["status"] do
+    case field(result, :status) do
       nil ->
-        if result[:is_error] == true or result["is_error"] == true, do: :error, else: nil
+        if field(result, :is_error) == true, do: :error, else: nil
 
       value when is_atom(value) ->
         value
@@ -233,14 +219,13 @@ defmodule JidoStudio.Agents.MessageSnapshot do
       case todo do
         %{} = map ->
           %{
-            id: normalize_optional_string(map[:id] || map["id"]) || Integer.to_string(idx),
+            id: normalize_optional_string(field(map, :id)) || Integer.to_string(idx),
             content:
               normalize_optional_string(
-                map[:content] || map["content"] || map[:text] || map["text"] || map[:title] ||
-                  map["title"]
+                field(map, :content) || field(map, :text) || field(map, :title)
               ) || inspect(map, limit: 40),
-            status: normalize_todo_status(map[:status] || map["status"]),
-            active_form: normalize_optional_string(map[:active_form] || map["active_form"])
+            status: normalize_todo_status(field(map, :status)),
+            active_form: normalize_optional_string(field(map, :active_form))
           }
 
         value when is_binary(value) ->
@@ -280,4 +265,22 @@ defmodule JidoStudio.Agents.MessageSnapshot do
   defp normalize_optional_string(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_optional_string(value) when is_integer(value), do: Integer.to_string(value)
   defp normalize_optional_string(_), do: nil
+
+  defp field(data, key, default \\ nil)
+
+  defp field(data, key, default) when is_map(data) and is_atom(key) do
+    case Map.fetch(data, key) do
+      {:ok, value} ->
+        value
+
+      :error ->
+        Map.get(data, Atom.to_string(key), default)
+    end
+  end
+
+  defp field(data, key, default) when is_map(data) and is_binary(key) do
+    Map.get(data, key, default)
+  end
+
+  defp field(_data, _key, default), do: default
 end

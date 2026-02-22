@@ -129,7 +129,7 @@ defmodule JidoStudio.Live.AgentsLive.Support do
 
   def requested_workbench_tab(_), do: nil
 
-  def resolve_default_workbench_tab(requested_tab, _interaction_model, _chat_enabled?)
+  def resolve_default_workbench_tab(requested_tab, interaction_model, chat_enabled?)
       when requested_tab in [
              :chat,
              :interact,
@@ -144,7 +144,17 @@ defmodule JidoStudio.Live.AgentsLive.Support do
              :tool_insights,
              :middleware
            ] do
-    requested_tab
+    cond do
+      requested_tab == :chat and not chat_enabled? and
+          interaction_model[:runner_supported?] == true ->
+        :interact
+
+      requested_tab == :chat and not chat_enabled? ->
+        interaction_model[:primary_default_tab] || :chat
+
+      true ->
+        requested_tab
+    end
   end
 
   def resolve_default_workbench_tab(_requested_tab, interaction_model, chat_enabled?) do
@@ -768,46 +778,145 @@ defmodule JidoStudio.Live.AgentsLive.Support do
   def task_badge_variant(:running), do: :info
   def task_badge_variant(_), do: :default
 
+  @workbench_sections [
+    %{
+      id: :play,
+      label: "Play",
+      default_tab: :chat,
+      tabs: [
+        %{id: :chat, label: "Chat"},
+        %{id: :interact, label: "Interact"},
+        %{id: :messages, label: "Messages"}
+      ]
+    },
+    %{
+      id: :observe,
+      label: "Observe",
+      default_tab: :events,
+      tabs: [
+        %{id: :events, label: "Events"},
+        %{id: :todos, label: "TODOs"},
+        %{id: :thread_context, label: "Thread Context"},
+        %{id: :thread_events, label: "Thread Events"}
+      ]
+    },
+    %{
+      id: :configure,
+      label: "Configure",
+      default_tab: :instance,
+      tabs: [
+        %{id: :instance, label: "Instance"},
+        %{id: :sub_agents, label: "Sub-Agents"},
+        %{id: :tasks, label: "Tasks"},
+        %{id: :tool_insights, label: "Tool Insights"},
+        %{id: :middleware, label: "Middleware"}
+      ]
+    }
+  ]
+
+  @workbench_tab_order [
+    :chat,
+    :interact,
+    :messages,
+    :events,
+    :todos,
+    :thread_context,
+    :thread_events,
+    :instance,
+    :sub_agents,
+    :tasks,
+    :tool_insights,
+    :middleware
+  ]
+
+  @workbench_tabs_by_section Enum.reduce(@workbench_sections, %{}, fn section, acc ->
+                               Enum.reduce(section.tabs, acc, fn tab, inner ->
+                                 Map.put(inner, tab.id, section.id)
+                               end)
+                             end)
+
+  def workbench_sections, do: @workbench_sections
+
+  def parse_instance_section(section)
+
+  def parse_instance_section(section) when section in [:play, :observe, :configure], do: section
+  def parse_instance_section("play"), do: :play
+  def parse_instance_section("observe"), do: :observe
+  def parse_instance_section("configure"), do: :configure
+  def parse_instance_section(_), do: :play
+
+  def section_query_value(:play), do: "play"
+  def section_query_value(:observe), do: "observe"
+  def section_query_value(:configure), do: "configure"
+  def section_query_value(_), do: "play"
+
+  def default_workbench_tab_for_section(section) do
+    section =
+      section
+      |> parse_instance_section()
+
+    section =
+      Enum.find(@workbench_sections, &(&1.id == section)) ||
+        Enum.find(@workbench_sections, &(&1.id == :play))
+
+    section.default_tab
+  end
+
+  def workbench_tabs_for_section(section) do
+    section =
+      section
+      |> parse_instance_section()
+
+    section =
+      Enum.find(@workbench_sections, &(&1.id == section)) ||
+        Enum.find(@workbench_sections, &(&1.id == :play))
+
+    section.tabs
+  end
+
+  def section_description(:play), do: "Try interactions and send messages."
+  def section_description(:observe), do: "Track events, TODOs, and runtime flow."
+  def section_description(:configure), do: "Inspect instance details and tools."
+  def section_description(_), do: "Inspect and operate this instance."
+
+  def workbench_tab_in_section?(tab, section) do
+    tab = parse_workbench_tab(tab)
+
+    section
+    |> workbench_tabs_for_section()
+    |> Enum.any?(&(&1.id == tab))
+  end
+
+  def section_for_workbench_tab(tab) do
+    tab = parse_workbench_tab(tab)
+    Map.get(@workbench_tabs_by_section, tab, :play)
+  end
+
   def workbench_tab_button_class(active?) do
-    base =
-      "inline-flex h-7 items-center justify-center whitespace-nowrap rounded-md border px-3 text-xs font-medium transition-colors"
+    base = "js-instance-menu-tab"
+    if active?, do: "#{base} is-active", else: base
+  end
 
-    active_class = "border-js-border bg-js-card text-js-text shadow-sm"
-
-    inactive_class =
-      "border-transparent text-js-text-muted hover:text-js-text hover:bg-js-bg"
-
-    if active?, do: "#{base} #{active_class}", else: "#{base} #{inactive_class}"
+  def workbench_section_button_class(active?) do
+    base = "js-instance-menu-section"
+    if active?, do: "#{base} is-active", else: base
   end
 
   def workbench_grid_class(true) do
-    "grid grid-cols-1 gap-2 md:grid-cols-[180px_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:min-h-0 lg:grid-cols-[200px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] xl:grid-cols-[200px_minmax(0,1fr)_300px] xl:grid-rows-[minmax(0,1fr)]"
+    "grid grid-cols-1 gap-2 md:grid-cols-[180px_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:min-h-0 lg:grid-cols-[190px_minmax(0,1fr)_280px] lg:grid-rows-[minmax(0,1fr)] xl:grid-cols-[200px_minmax(0,1fr)_300px]"
   end
 
   def workbench_grid_class(false) do
     "grid grid-cols-1 gap-2 md:grid-cols-[180px_minmax(0,1fr)] lg:grid-cols-[200px_minmax(0,1fr)] lg:min-h-0"
   end
 
-  def workbench_threads_rail_class(true), do: "md:row-span-2 xl:row-span-1"
+  def workbench_threads_rail_class(true), do: "md:row-span-2 lg:row-span-1"
   def workbench_threads_rail_class(false), do: nil
 
   def parse_workbench_tab(panel, legacy_view \\ nil)
 
   def parse_workbench_tab(panel, _legacy_view)
-      when panel in [
-             :chat,
-             :interact,
-             :messages,
-             :events,
-             :todos,
-             :thread_context,
-             :thread_events,
-             :instance,
-             :sub_agents,
-             :tasks,
-             :tool_insights,
-             :middleware
-           ],
+      when panel in @workbench_tab_order,
       do: panel
 
   def parse_workbench_tab("chat", _legacy_view), do: :chat
@@ -828,14 +937,26 @@ defmodule JidoStudio.Live.AgentsLive.Support do
   def parse_workbench_tab(_, :inspect), do: :instance
   def parse_workbench_tab(_, _), do: :chat
 
-  def workbench_path(prefix, agent, instance_id, panel, tab) do
-    base = "#{prefix}/agents/#{agent.slug}/#{URI.encode_www_form(instance_id)}"
+  def workbench_section_path(prefix, agent, instance_id, section) do
+    section =
+      section
+      |> parse_instance_section()
+      |> section_query_value()
+
+    path = "#{prefix}/agents/#{agent.slug}/#{URI.encode_www_form(instance_id)}/#{section}"
+    Scope.with_scope_query(path, Scope.current_node_param())
+  end
+
+  def workbench_path(prefix, agent, instance_id, panel, tab, section \\ nil) do
     panel = parse_workbench_tab(panel)
+    section = parse_instance_section(section || section_for_workbench_tab(panel))
+    default_panel = default_workbench_tab_for_section(section)
+    base = workbench_section_path(prefix, agent, instance_id, section)
     panel_value = panel_query_value(panel)
     tab_value = tab_query_value(tab)
 
     params =
-      [{"panel", panel_value}] ++
+      if(panel != default_panel, do: [{"panel", panel_value}], else: []) ++
         if(panel == :instance and is_binary(tab_value), do: [{"tab", tab_value}], else: [])
 
     query =
@@ -843,8 +964,12 @@ defmodule JidoStudio.Live.AgentsLive.Support do
       |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
       |> URI.encode_query()
 
-    path = if query == "", do: base, else: "#{base}?#{query}"
-    Scope.with_scope_query(path, Scope.current_node_param())
+    if query == "" do
+      base
+    else
+      separator = if String.contains?(base, "?"), do: "&", else: "?"
+      "#{base}#{separator}#{query}"
+    end
   end
 
   def panel_query_value(:chat), do: "chat"

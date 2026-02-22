@@ -126,6 +126,238 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Agent workbench hierarchy */
+.js-agent-topbar {
+  border: 1px solid var(--js-border);
+  border-radius: 0.72rem;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--js-bg-elevated) 76%, var(--js-bg) 24%) 0%,
+    color-mix(in oklab, var(--js-card) 88%, var(--js-bg) 12%) 100%
+  );
+  padding: 0.55rem 0.75rem;
+}
+
+.js-instance-menu {
+  border: 1px solid var(--js-border);
+  border-radius: 0.8rem;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--js-card) 86%, var(--js-bg-elevated) 14%);
+}
+
+.js-instance-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--js-border);
+  background: color-mix(in oklab, var(--js-bg-elevated) 72%, var(--js-bg) 28%);
+}
+
+.js-instance-menu-title-block {
+  min-width: 0;
+}
+
+.js-instance-menu-kicker {
+  font-size: 0.67rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--js-text-subtle);
+}
+
+.js-instance-menu-description {
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--js-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.js-instance-menu-current {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--js-info) 45%, transparent);
+  background: color-mix(in oklab, var(--js-info) 15%, transparent);
+  color: var(--js-info);
+  font-size: 0.69rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 0.27rem 0.5rem;
+  flex-shrink: 0;
+}
+
+.js-instance-menu-sections {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+  padding: 0.58rem 0.62rem;
+  border-bottom: 1px solid var(--js-border);
+  background: color-mix(in oklab, var(--js-bg) 62%, var(--js-bg-elevated) 38%);
+}
+
+.js-instance-menu-section {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.38rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  color: var(--js-text-muted);
+  padding: 0.44rem 0.58rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease,
+    transform 140ms ease;
+}
+
+.js-instance-menu-section:hover {
+  color: var(--js-text);
+  border-color: color-mix(in oklab, var(--js-border-strong) 60%, transparent);
+  background: color-mix(in oklab, var(--js-bg-elevated) 88%, var(--js-bg) 12%);
+  transform: translateY(-1px);
+}
+
+.js-instance-menu-section.is-active {
+  color: var(--js-primary-foreground);
+  border-color: color-mix(in oklab, var(--js-primary) 55%, transparent);
+  background: var(--js-primary);
+  transform: none;
+}
+
+.js-instance-menu-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.js-instance-menu-item-label {
+  white-space: nowrap;
+}
+
+.js-instance-menu-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.36rem;
+  padding: 0.58rem 0.62rem;
+  background: color-mix(in oklab, var(--js-card) 78%, var(--js-bg) 22%);
+}
+
+.js-instance-menu-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 0.48rem;
+  color: var(--js-text-muted);
+  background: color-mix(in oklab, var(--js-bg) 70%, transparent);
+  padding: 0.34rem 0.64rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.js-instance-menu-tab:hover {
+  color: var(--js-text);
+  border-color: color-mix(in oklab, var(--js-border-strong) 58%, transparent);
+  background: color-mix(in oklab, var(--js-bg-elevated) 88%, var(--js-bg) 12%);
+}
+
+.js-instance-menu-tab.is-active {
+  color: var(--js-text);
+  border-color: color-mix(in oklab, var(--js-info) 55%, transparent);
+  background: color-mix(in oklab, var(--js-info) 16%, var(--js-bg) 84%);
+}
+
+.js-instance-menu-tab.is-disabled {
+  color: var(--js-text-subtle);
+  border-color: color-mix(in oklab, var(--js-border) 75%, transparent);
+  background: color-mix(in oklab, var(--js-bg) 65%, transparent);
+  cursor: not-allowed;
+}
+
+.js-threads-rail {
+  background: color-mix(in oklab, var(--js-card) 90%, var(--js-bg) 10%);
+}
+
+.js-threads-rail-header {
+  background: color-mix(in oklab, var(--js-bg-elevated) 72%, var(--js-bg) 28%);
+}
+
+.js-threads-rail-new {
+  border: 1px solid color-mix(in oklab, var(--js-primary) 50%, transparent);
+}
+
+.js-thread-row {
+  background: color-mix(in oklab, var(--js-bg) 80%, transparent);
+}
+
+.js-thread-row.is-active {
+  border-color: color-mix(in oklab, var(--js-primary) 62%, transparent);
+  background: color-mix(in oklab, var(--js-primary) 13%, var(--js-bg-elevated) 87%);
+}
+
+.js-conversation-panel {
+  background: color-mix(in oklab, var(--js-card) 90%, var(--js-bg) 10%);
+}
+
+.js-conversation-header {
+  background: color-mix(in oklab, var(--js-bg-elevated) 72%, var(--js-bg) 28%);
+}
+
+.js-conversation-messages {
+  background: color-mix(in oklab, var(--js-bg) 78%, var(--js-bg-surface) 22%);
+}
+
+.js-message-bubble {
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--js-border) 38%, transparent);
+}
+
+.js-conversation-composer {
+  background: color-mix(in oklab, var(--js-card) 78%, var(--js-bg) 22%);
+}
+
+.js-agent-summary-pane {
+  background: color-mix(in oklab, var(--js-card) 90%, var(--js-bg) 10%);
+}
+
+.js-agent-summary-header {
+  background: color-mix(in oklab, var(--js-bg-elevated) 74%, var(--js-bg) 26%);
+}
+
+.js-agent-summary-link {
+  background: color-mix(in oklab, var(--js-bg) 70%, transparent);
+}
+
+.js-agent-summary-link:hover {
+  border-color: color-mix(in oklab, var(--js-info) 45%, transparent);
+}
+
+.js-agent-summary-event {
+  background: color-mix(in oklab, var(--js-bg) 66%, var(--js-bg-elevated) 34%);
+}
+
+@media (max-width: 48rem) {
+  .js-instance-menu-header {
+    flex-wrap: wrap;
+  }
+
+  .js-instance-menu-current {
+    margin-left: auto;
+  }
+
+  .js-instance-menu-sections {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Chat markdown rendering */
 .js-chat-markdown > :first-child { margin-top: 0; }
 .js-chat-markdown > :last-child { margin-bottom: 0; }

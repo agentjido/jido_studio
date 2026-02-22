@@ -6,7 +6,7 @@ defmodule JidoStudio.Hooks do
   import Phoenix.Component
   import Phoenix.LiveView, only: [attach_hook: 4]
 
-  def on_mount(:default, _params, session, socket) do
+  def on_mount(:default, params, session, socket) do
     resolver = Map.get(session, "resolver", JidoStudio.Resolver.Default)
     csp_nonce_assign_key = Map.get(session, "csp_nonce_assign_key")
     prefix = Map.get(session, "prefix", "")
@@ -24,6 +24,7 @@ defmodule JidoStudio.Hooks do
       |> assign(:studio_version, JidoStudio.version())
       |> assign(:page_title, "Jido Studio")
       |> assign(:current_path, "")
+      |> assign(:route_params, normalize_params(params))
       |> assign(:current_query, %{})
       |> assign(:prefix, prefix)
       |> assign(:cluster_enabled?, Scope.enabled?())
@@ -44,6 +45,7 @@ defmodule JidoStudio.Hooks do
         {:cont,
          socket
          |> assign(:current_path, parsed_uri.path || "")
+         |> assign(:route_params, normalize_params(params))
          |> assign(:current_query, Map.put(query, "node", node_param))
          |> assign(:cluster_scope, scope)
          |> assign(:cluster_node_param, node_param)
@@ -61,6 +63,9 @@ defmodule JidoStudio.Hooks do
   rescue
     _ -> %{}
   end
+
+  defp normalize_params(params) when is_map(params), do: params
+  defp normalize_params(_), do: %{}
 
   defp node_scope_warning(nil, _node_param), do: nil
   defp node_scope_warning("", _node_param), do: nil

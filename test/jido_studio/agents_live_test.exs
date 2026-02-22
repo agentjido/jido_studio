@@ -165,6 +165,96 @@ defmodule JidoStudio.AgentsLiveTest do
     assert html =~ "Signal and action introspection with guarded runtime dispatch."
   end
 
+  test "show route disconnected render uses workbench shell layout", %{conn: conn} do
+    instance_id = "layout-shell-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _pid} =
+             Jido.start_agent(TestJido, Jido.AI.Examples.CalculatorAgent, id: instance_id)
+
+    slug = slug_for_module(Jido.AI.Examples.CalculatorAgent)
+
+    conn = get(conn, "/studio/agents/#{slug}/#{instance_id}")
+    html = html_response(conn, 200)
+
+    assert html =~ "js-main-workbench"
+    assert html =~ ~s(id="studio-main")
+    assert html =~ ~s(data-prefix="/studio")
+  end
+
+  test "workbench renders section menu and section-specific panels", %{conn: conn} do
+    instance_id = "workbench-sections-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _pid} =
+             Jido.start_agent(TestJido, Jido.AI.Examples.CalculatorAgent, id: instance_id)
+
+    slug = slug_for_module(Jido.AI.Examples.CalculatorAgent)
+
+    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+
+    assert has_element?(view, "a", "Play")
+    assert has_element?(view, "a", "Observe")
+    assert has_element?(view, "a", "Configure")
+    assert has_element?(view, "a[href*='/play'][href*='panel=interact']")
+    assert has_element?(view, "a[href*='?node=all&panel=interact']")
+    refute has_element?(view, "a[href*='?node=all?panel=interact']")
+    refute has_element?(view, "a[href*='panel=thread_context']")
+    assert has_element?(view, ".js-agent-summary-pane")
+
+    view
+    |> element("a[href*='/observe']", "Observe")
+    |> render_click()
+
+    assert has_element?(view, "a[href*='panel=thread_context']")
+    assert has_element?(view, "h4", "Live Triage")
+    assert has_element?(view, ".js-agent-summary-pane")
+
+    view
+    |> element("a[href*='/configure']", "Configure")
+    |> render_click()
+
+    assert has_element?(view, "h4", "Live Triage")
+    assert has_element?(view, ".js-agent-summary-pane")
+  end
+
+  test "requested chat panel falls back to interact for non-chat agents", %{conn: conn} do
+    instance_id = "non-chat-panel-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _pid} = Jido.start_agent(TestJido, NonChatAgent, id: instance_id)
+
+    slug = slug_for_module(NonChatAgent)
+
+    {:ok, view, html} = live(conn, "/studio/agents/#{slug}/#{instance_id}?panel=chat")
+
+    assert html =~ "Signal and action introspection with guarded runtime dispatch."
+    assert has_element?(view, "span[title='Chat unavailable for this instance']", "Chat")
+  end
+
+  test "chat defaults to interact when provider credentials are missing", %{conn: conn} do
+    restore_api_key = stash_env("ANTHROPIC_API_KEY")
+    restore_claude_key = stash_env("CLAUDE_API_KEY")
+    restore_openai_key = stash_env("OPENAI_API_KEY")
+    restore_groq_key = stash_env("GROQ_API_KEY")
+
+    on_exit(fn ->
+      restore_api_key.()
+      restore_claude_key.()
+      restore_openai_key.()
+      restore_groq_key.()
+    end)
+
+    instance_id = "calculator-no-keys-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _pid} =
+             Jido.start_agent(TestJido, Jido.AI.Examples.CalculatorAgent, id: instance_id)
+
+    slug = slug_for_module(Jido.AI.Examples.CalculatorAgent)
+
+    {:ok, view, html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+
+    assert html =~ "Signal and action introspection with guarded runtime dispatch."
+    assert has_element?(view, "span[title='Chat unavailable for this instance']", "Chat")
+  end
+
   test "guarded runner requires arming before execute and succeeds after arming", %{conn: conn} do
     instance_id = "non-chat-runner-#{System.unique_integer([:positive])}"
 
@@ -210,6 +300,16 @@ defmodule JidoStudio.AgentsLiveTest do
   end
 
   test "show defaults to chat for chat-capable agents", %{conn: conn} do
+    restore_api_key = stash_env("ANTHROPIC_API_KEY")
+    restore_claude_key = stash_env("CLAUDE_API_KEY")
+
+    System.put_env("ANTHROPIC_API_KEY", "test-key")
+
+    on_exit(fn ->
+      restore_api_key.()
+      restore_claude_key.()
+    end)
+
     instance_id = "weather-chat-#{System.unique_integer([:positive])}"
 
     assert {:ok, _pid} =
@@ -241,6 +341,19 @@ defmodule JidoStudio.AgentsLiveTest do
     |> case do
       %{slug: slug} when is_binary(slug) -> slug
       _ -> raise "Unable to resolve slug for #{inspect(module)}"
+    end
+  end
+
+  defp stash_env(var) when is_binary(var) do
+    previous = System.get_env(var)
+    System.delete_env(var)
+
+    fn ->
+      if is_binary(previous) do
+        System.put_env(var, previous)
+      else
+        System.delete_env(var)
+      end
     end
   end
 end

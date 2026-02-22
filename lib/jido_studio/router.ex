@@ -101,6 +101,13 @@ defmodule JidoStudio.Router do
           root_layout: {JidoStudio.Layouts, :studio} do
           Phoenix.LiveView.Router.live("/", JidoStudio.HomeLive, :index)
           Phoenix.LiveView.Router.live("/agents", JidoStudio.AgentsLive, :index)
+
+          Phoenix.LiveView.Router.live(
+            "/agents/:slug/:instance_id/:section",
+            JidoStudio.AgentsLive,
+            :show
+          )
+
           Phoenix.LiveView.Router.live("/agents/:slug/:instance_id", JidoStudio.AgentsLive, :show)
           Phoenix.LiveView.Router.live("/agents/:slug", JidoStudio.AgentsLive, :show)
           Phoenix.LiveView.Router.live("/catalog", JidoStudio.CatalogLive, :index)

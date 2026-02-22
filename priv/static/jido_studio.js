@@ -155,6 +155,40 @@
     refreshTimeElements();
   }
 
+  var HOME_EXAMPLE_STORAGE_KEY = "jido-studio-home-example-hidden";
+
+  function readHomeExampleHidden() {
+    try {
+      return localStorage.getItem(HOME_EXAMPLE_STORAGE_KEY) === "1";
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function writeHomeExampleHidden(hidden) {
+    try {
+      if (hidden) {
+        localStorage.setItem(HOME_EXAMPLE_STORAGE_KEY, "1");
+      } else {
+        localStorage.removeItem(HOME_EXAMPLE_STORAGE_KEY);
+      }
+    } catch (_error) {
+      // ignore storage failures
+    }
+  }
+
+  function syncHomeExampleVisibility() {
+    var hidden = readHomeExampleHidden();
+
+    document.querySelectorAll("[data-js-home-example]").forEach(function (root) {
+      var card = root.querySelector("[data-js-home-example-card]");
+      var show = root.querySelector("[data-js-home-example-show]");
+
+      if (card) card.classList.toggle("hidden", hidden);
+      if (show) show.classList.toggle("hidden", !hidden);
+    });
+  }
+
   document.addEventListener(
     "input",
     function (event) {
@@ -185,13 +219,44 @@
     true
   );
 
+  document.addEventListener(
+    "click",
+    function (event) {
+      var hideButton =
+        event.target && event.target.closest
+          ? event.target.closest("[data-js-home-example-hide]")
+          : null;
+
+      if (hideButton) {
+        writeHomeExampleHidden(true);
+        syncHomeExampleVisibility();
+        return;
+      }
+
+      var showButton =
+        event.target && event.target.closest
+          ? event.target.closest("[data-js-home-example-show-btn]")
+          : null;
+
+      if (showButton) {
+        writeHomeExampleHidden(false);
+        syncHomeExampleVisibility();
+      }
+    },
+    true
+  );
+
   document.addEventListener("DOMContentLoaded", syncAllComposerInputs);
   window.addEventListener("pageshow", syncAllComposerInputs);
   window.addEventListener("phx:page-loading-stop", syncAllComposerInputs);
   document.addEventListener("DOMContentLoaded", syncClientTime);
   window.addEventListener("pageshow", syncClientTime);
   window.addEventListener("phx:page-loading-stop", syncClientTime);
+  document.addEventListener("DOMContentLoaded", syncHomeExampleVisibility);
+  window.addEventListener("pageshow", syncHomeExampleVisibility);
+  window.addEventListener("phx:page-loading-stop", syncHomeExampleVisibility);
   window.setInterval(refreshTimeElements, 15 * 1000);
   setTimeout(syncAllComposerInputs, 0);
   setTimeout(syncClientTime, 0);
+  setTimeout(syncHomeExampleVisibility, 0);
 })();

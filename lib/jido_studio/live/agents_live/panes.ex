@@ -20,8 +20,8 @@ defmodule JidoStudio.Live.AgentsLive.Panes do
 
   def summary_pane(assigns) do
     ~H"""
-    <.card class={"p-0 overflow-hidden flex flex-col min-h-0 #{@class || ""}"}>
-      <div class="px-3 py-3 border-b border-js-border">
+    <.card class={"js-agent-summary-pane p-0 overflow-hidden flex flex-col min-h-0 #{@class || ""}"}>
+      <div class="js-agent-summary-header px-3 py-3 border-b border-js-border">
         <h3 class="text-xl font-semibold text-js-text">{humanize_agent_name(@agent.name)}</h3>
         <div class="mt-1.5">
           <.badge>{@agent.name}</.badge>
@@ -100,21 +100,21 @@ defmodule JidoStudio.Live.AgentsLive.Panes do
             <.link
               :if={is_binary(@triage_links[:latest_incident_path])}
               navigate={@triage_links[:latest_incident_path]}
-              class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+              class="js-agent-summary-link inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Latest Incident
             </.link>
             <.link
               :if={is_binary(@triage_links[:failures_path])}
               navigate={@triage_links[:failures_path]}
-              class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+              class="js-agent-summary-link inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Recent Failures
             </.link>
             <.link
               :if={is_binary(@triage_links[:snapshot_path])}
               navigate={@triage_links[:snapshot_path]}
-              class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+              class="js-agent-summary-link inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Correlated Snapshot
             </.link>
@@ -138,7 +138,7 @@ defmodule JidoStudio.Live.AgentsLive.Panes do
             <div class="space-y-1.5">
               <div
                 :for={event <- Enum.take(@instance_observability_events, 3)}
-                class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2 py-1.5"
+                class="js-agent-summary-event rounded-md border border-js-border bg-js-bg-elevated/40 px-2 py-1.5"
               >
                 <div class="flex items-center justify-between gap-2">
                   <time

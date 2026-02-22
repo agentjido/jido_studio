@@ -56,4 +56,27 @@ defmodule JidoStudio.Agents.MessageSnapshotTest do
     assert Enum.map(todos, & &1.id) == ["todo-a", "2"]
     assert Enum.map(todos, & &1.content) == ["Do thing", "Fallback todo"]
   end
+
+  test "normalizes thread entries when runtime uses structs" do
+    runtime_status = %{
+      raw_state: %{
+        __strategy__: %{
+          thread: %{
+            entries: [
+              %Jido.AI.Thread.Entry{
+                role: :user,
+                content: "test",
+                timestamp: ~U[2026-02-22 18:47:48.383209Z]
+              }
+            ]
+          }
+        }
+      }
+    }
+
+    [message] = MessageSnapshot.thread_messages(runtime_status)
+
+    assert message.role == :user
+    assert message.content == "test"
+  end
 end
