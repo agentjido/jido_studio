@@ -15,3 +15,6 @@ jido_studio-*.tar
 
 # Studio playground runtime artifacts (thread/checkpoint persistence)
 /dev/studio_playground/priv/jido_studio/storage/
+
+# Local Studio runtime artifacts when running package tests/dev server
+/priv/jido_studio/storage/

@@ -139,6 +139,15 @@ defmodule JidoStudio.Live.AgentsLive.Render.InstanceView do
           </.badge>
         </div>
         <div class="flex items-center gap-2">
+          <button
+            :if={@thread_persistence?}
+            type="button"
+            phx-click="clear_workspace"
+            data-confirm="Clear persisted workspace for this instance? Saved threads and context snapshots will be removed."
+            class="inline-flex items-center gap-2 rounded-md border border-js-border px-3 py-1.5 text-sm text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated transition-colors"
+          >
+            Clear Workspace
+          </button>
           <.link
             navigate={@traces_path}
             class="inline-flex items-center gap-2 rounded-md border border-js-border px-3 py-1.5 text-sm text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated transition-colors"

@@ -395,6 +395,29 @@ defmodule JidoStudio.AgentsLive do
   end
 
   @impl true
+  def handle_event("clear_workspace", _params, socket) do
+    case clear_active_workspace(socket) do
+      {:ok, cleared} ->
+        {:noreply, put_flash(cleared, :info, "Cleared persisted workspace for this instance.")}
+
+      {:error, :persistence_disabled, same_socket} ->
+        {:noreply,
+         put_flash(
+           same_socket,
+           :error,
+           "Thread persistence is disabled for this runtime."
+         )}
+
+      {:error, :no_active_instance, same_socket} ->
+        {:noreply, put_flash(same_socket, :error, "No active instance selected.")}
+
+      {:error, reason, same_socket} ->
+        {:noreply,
+         put_flash(same_socket, :error, "Failed to clear workspace: #{inspect(reason)}")}
+    end
+  end
+
+  @impl true
   def handle_event("run_selected_interaction", _params, socket) do
     with true <- is_pid(socket.assigns[:active_instance_pid]),
          true <- RunnerForm.can_execute?(socket.assigns.runner_form),
@@ -804,6 +827,8 @@ defmodule JidoStudio.AgentsLive do
 
   defp maybe_capture_thread_context_snapshot(socket, runtime_status),
     do: WorkspaceState.maybe_capture_thread_context_snapshot(socket, runtime_status)
+
+  defp clear_active_workspace(socket), do: WorkspaceState.clear_active_workspace(socket)
 
   defp setup_live_ops(socket) do
     enabled? = LiveOps.enabled?()

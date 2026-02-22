@@ -199,6 +199,14 @@ defmodule JidoStudio.HomeLive do
         <.stat_card label="Agents Available" value={to_string(@summary.available_agents || 0)} />
         <.stat_card label="Active Incidents" value={to_string(@summary.active_incidents || 0)} />
         <.stat_card label="Cluster Nodes" value={to_string(@summary.node_count || 1)} />
+        <.stat_card
+          label="Workspace Persistence"
+          value={if(@summary.thread_persistence?, do: "On", else: "Off")}
+        />
+        <.stat_card
+          label="Thread Storage"
+          value={@summary.thread_storage_adapter || "n/a"}
+        />
       </div>
 
       <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
@@ -391,6 +399,8 @@ defmodule JidoStudio.HomeLive do
     scope = socket.assigns.cluster_scope
     jido_instance = socket.assigns[:jido_instance]
     runtime_key = socket.assigns[:runtime_key]
+    storage_info = thread_storage_details(jido_instance)
+    thread_persistence? = ThreadsStorage.persistence_enabled?()
 
     agents = AgentRegistry.list_agents(jido_instance: jido_instance, scope: scope)
     incidents = cluster_incidents(scope)
@@ -401,7 +411,10 @@ defmodule JidoStudio.HomeLive do
       available_agents: Enum.count(agents, &((&1.running_instances || []) == [])),
       running_instances: Enum.reduce(agents, 0, &(&2 + length(&1.running_instances || []))),
       active_incidents: Enum.count(incidents, &incident_active?/1),
-      node_count: node_count(scope)
+      node_count: node_count(scope),
+      thread_persistence?: thread_persistence?,
+      thread_storage_adapter: storage_info.adapter,
+      thread_storage_path: storage_info.path
     }
 
     top_agents =
@@ -769,6 +782,7 @@ defmodule JidoStudio.HomeLive do
     runtime_connected? = is_atom(socket.assigns[:jido_instance])
     thread_persistence? = ThreadsStorage.persistence_enabled?()
     thread_mode = ThreadsStorage.thread_storage_mode()
+    storage_info = thread_storage_details(socket.assigns[:jido_instance])
     live_ops_enabled? = LiveOps.enabled?()
     live_ops_presence? = LiveOps.presence_available?()
     chat_key_present? = any_chat_key_present?()
@@ -790,7 +804,8 @@ defmodule JidoStudio.HomeLive do
       status: if(thread_persistence?, do: :ok, else: :warning),
       detail:
         if(thread_persistence?,
-          do: "Thread persistence enabled (mode: #{thread_mode}).",
+          do:
+            "Thread persistence enabled (mode: #{thread_mode}, adapter: #{storage_info.adapter}, path: #{storage_info.path}).",
           else: "Thread persistence is disabled; workspace state is ephemeral."
         ),
       required?: true,
@@ -917,6 +932,39 @@ defmodule JidoStudio.HomeLive do
   defp setup_status_label(:info), do: "Optional"
   defp setup_status_label(:warning), do: "Action"
   defp setup_status_label(_), do: "Info"
+
+  defp thread_storage_details(jido_instance) do
+    case ThreadsStorage.resolve_storage(jido_instance: jido_instance) do
+      {:ok, {adapter, opts}} ->
+        %{
+          adapter: inspect(adapter),
+          path: storage_path(opts)
+        }
+
+      {:error, _reason} ->
+        %{
+          adapter: "unavailable",
+          path: "n/a"
+        }
+    end
+  rescue
+    _ ->
+      %{
+        adapter: "unavailable",
+        path: "n/a"
+      }
+  end
+
+  defp storage_path(opts) when is_list(opts) do
+    opts
+    |> Keyword.get(:path)
+    |> case do
+      value when is_binary(value) and value != "" -> value
+      _ -> "n/a"
+    end
+  end
+
+  defp storage_path(_), do: "n/a"
 
   defp runtime_scope_label(runtime_key, _jido_instance) when is_binary(runtime_key),
     do: runtime_key

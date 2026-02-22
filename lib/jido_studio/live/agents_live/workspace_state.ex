@@ -113,6 +113,34 @@ defmodule JidoStudio.Live.AgentsLive.WorkspaceState do
     end
   end
 
+  def clear_active_workspace(socket) do
+    has_workspace? =
+      is_binary(socket.assigns[:active_instance_id]) and is_map(socket.assigns[:agent])
+
+    cond do
+      not has_workspace? ->
+        {:error, :no_active_instance, socket}
+
+      socket.assigns[:thread_persistence?] != true or not ThreadsStorage.persistence_enabled?() ->
+        {:error, :persistence_disabled, socket}
+
+      true ->
+        cancel_workspace_persist_timer(socket.assigns[:persist_workspace_ref])
+
+        case ThreadsManager.delete_workspace(
+               socket.assigns.agent.slug,
+               socket.assigns.active_instance_id,
+               jido_instance: socket.assigns[:jido_instance]
+             ) do
+          :ok ->
+            {:ok, reset_workspace_assigns(socket)}
+
+          {:error, reason} ->
+            {:error, reason, socket}
+        end
+    end
+  end
+
   def maybe_capture_thread_context_snapshot(socket, runtime_status) do
     mode = ThreadsStorage.persist_strategy_context_mode()
     active_thread_id = socket.assigns[:chat_state] && socket.assigns.chat_state.active_thread_id
@@ -243,4 +271,31 @@ defmodule JidoStudio.Live.AgentsLive.WorkspaceState do
   end
 
   def detail_value(_, _, default), do: default
+
+  defp reset_workspace_assigns(socket) do
+    active_instance_id = socket.assigns[:active_instance_id]
+
+    interaction_history =
+      socket.assigns[:interaction_history]
+      |> case do
+        %{} = history when is_binary(active_instance_id) ->
+          Map.put(history, active_instance_id, [])
+
+        _ ->
+          %{}
+      end
+
+    socket
+    |> assign(:chat_state, ChatSession.with_initial_thread("New Chat"))
+    |> assign(:draft_message, "")
+    |> assign(:persisted_thread_contexts, %{})
+    |> assign(:interaction_history, interaction_history)
+    |> assign(:runner_history, [])
+    |> assign(:runner_result, nil)
+    |> assign(:workspace_source, :fresh)
+    |> assign(:persist_workspace_ref, nil)
+    |> assign(:chat_pending?, false)
+    |> assign(:chat_pending_message_id, nil)
+    |> assign(:chat_stream, nil)
+  end
 end

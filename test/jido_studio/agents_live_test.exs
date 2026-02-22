@@ -2,7 +2,9 @@ defmodule JidoStudio.AgentsLiveTest do
   use JidoStudio.ConnCase, async: false
 
   alias JidoStudio.AgentRegistry
+  alias JidoStudio.Chat.Session, as: ChatSession
   alias JidoStudio.TestJido
+  alias JidoStudio.Threads.Manager, as: ThreadsManager
 
   defmodule NonChatAgent do
     use Jido.Agent,
@@ -299,6 +301,69 @@ defmodule JidoStudio.AgentsLiveTest do
     assert has_element?(view, "button[phx-click='run_selected_interaction'][disabled]")
   end
 
+  test "clear workspace removes persisted chat state for an instance", %{conn: conn} do
+    table =
+      String.to_atom("jido_studio_agents_live_workspace_#{System.unique_integer([:positive])}")
+
+    restore_persistence = stash_app_env(:jido_studio, :thread_persistence, true)
+    restore_storage_mode = stash_app_env(:jido_studio, :thread_storage_mode, :studio)
+
+    restore_storage =
+      stash_app_env(:jido_studio, :thread_storage, {Jido.Storage.ETS, table: table})
+
+    on_exit(fn ->
+      restore_persistence.()
+      restore_storage_mode.()
+      restore_storage.()
+
+      for suffix <- [:checkpoints, :threads, :thread_meta] do
+        table_name = String.to_atom("#{table}_#{suffix}")
+
+        if :ets.whereis(table_name) != :undefined do
+          :ets.delete(table_name)
+        end
+      end
+    end)
+
+    instance_id = "workspace-clear-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _pid} =
+             Jido.start_agent(TestJido, Jido.AI.Examples.CalculatorAgent, id: instance_id)
+
+    slug = slug_for_module(Jido.AI.Examples.CalculatorAgent)
+
+    state =
+      ChatSession.with_initial_thread("Saved Thread")
+      |> ChatSession.append_user_turn("persisted hello")
+      |> then(fn {session, pending_id} ->
+        ChatSession.resolve_assistant_reply(session, pending_id, "persisted world")
+      end)
+
+    assert :ok =
+             ThreadsManager.save_workspace(slug, instance_id, state,
+               jido_instance: TestJido,
+               draft_message: "persisted draft"
+             )
+
+    assert {:ok, saved_payload} =
+             ThreadsManager.load_workspace(slug, instance_id, jido_instance: TestJido)
+
+    assert saved_payload.source == :persisted
+
+    {:ok, view, html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+    assert html =~ "Saved Thread"
+
+    render_click(view, "clear_workspace", %{})
+
+    assert {:ok, cleared_payload} =
+             ThreadsManager.load_workspace(slug, instance_id, jido_instance: TestJido)
+
+    assert cleared_payload.source == :fresh
+
+    rendered = render(view)
+    refute rendered =~ "Saved Thread"
+  end
+
   test "show defaults to chat for chat-capable agents", %{conn: conn} do
     restore_api_key = stash_env("ANTHROPIC_API_KEY")
     restore_claude_key = stash_env("CLAUDE_API_KEY")
@@ -353,6 +418,19 @@ defmodule JidoStudio.AgentsLiveTest do
         System.put_env(var, previous)
       else
         System.delete_env(var)
+      end
+    end
+  end
+
+  defp stash_app_env(app, key, value) when is_atom(app) and is_atom(key) do
+    previous = Application.get_env(app, key)
+    Application.put_env(app, key, value)
+
+    fn ->
+      if is_nil(previous) do
+        Application.delete_env(app, key)
+      else
+        Application.put_env(app, key, previous)
       end
     end
   end

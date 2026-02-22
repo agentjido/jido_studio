@@ -8,6 +8,7 @@ defmodule JidoStudio.SettingsLive do
   @impl true
   def mount(_params, _session, socket) do
     observability = Application.get_env(:jido, :observability, [])
+    storage_info = thread_storage_details(socket.assigns[:jido_instance])
 
     socket =
       socket
@@ -32,6 +33,8 @@ defmodule JidoStudio.SettingsLive do
       |> assign(:thread_persistence, ThreadsStorage.persistence_enabled?())
       |> assign(:thread_storage_mode, ThreadsStorage.thread_storage_mode())
       |> assign(:thread_storage, inspect(Application.get_env(:jido_studio, :thread_storage, nil)))
+      |> assign(:thread_storage_adapter, storage_info.adapter)
+      |> assign(:thread_storage_path, storage_info.path)
       |> assign(:thread_retention_days, ThreadsStorage.thread_retention_days())
       |> assign(:persist_strategy_context, ThreadsStorage.persist_strategy_context_mode())
       |> assign(:auto_start_runtime, ThreadsStorage.auto_start_runtime?())
@@ -72,6 +75,7 @@ defmodule JidoStudio.SettingsLive do
         <.stat_card label="Trace Page Limit" value={to_string(@trace_page_limit)} />
         <.stat_card label="Thread Persistence" value={if(@thread_persistence, do: "On", else: "Off")} />
         <.stat_card label="Thread Storage Mode" value={to_string(@thread_storage_mode)} />
+        <.stat_card label="Thread Storage Adapter" value={@thread_storage_adapter} />
         <.stat_card label="Persistence Adapter" value={@persistence_adapter} />
         <.stat_card label="Live Ops" value={if(@live_ops_enabled, do: "On", else: "Off")} />
         <.stat_card label="Evals" value={if(@evals_enabled, do: "On", else: "Off")} />
@@ -143,6 +147,14 @@ defmodule JidoStudio.SettingsLive do
             <span class="text-sm text-js-text font-mono">{@thread_storage}</span>
           </div>
           <div class="flex justify-between items-center py-2 border-b border-js-border">
+            <span class="text-sm text-js-text-muted">Resolved Thread Storage Adapter</span>
+            <span class="text-sm text-js-text font-mono">{@thread_storage_adapter}</span>
+          </div>
+          <div class="flex justify-between items-center py-2 border-b border-js-border">
+            <span class="text-sm text-js-text-muted">Resolved Thread Storage Path</span>
+            <span class="text-sm text-js-text font-mono">{@thread_storage_path}</span>
+          </div>
+          <div class="flex justify-between items-center py-2 border-b border-js-border">
             <span class="text-sm text-js-text-muted">Persistence Adapter</span>
             <span class="text-sm text-js-text font-mono">{@persistence_adapter}</span>
           </div>
@@ -191,4 +203,37 @@ defmodule JidoStudio.SettingsLive do
     </div>
     """
   end
+
+  defp thread_storage_details(jido_instance) do
+    case ThreadsStorage.resolve_storage(jido_instance: jido_instance) do
+      {:ok, {adapter, opts}} ->
+        %{
+          adapter: inspect(adapter),
+          path: storage_path(opts)
+        }
+
+      {:error, _reason} ->
+        %{
+          adapter: "unavailable",
+          path: "n/a"
+        }
+    end
+  rescue
+    _ ->
+      %{
+        adapter: "unavailable",
+        path: "n/a"
+      }
+  end
+
+  defp storage_path(opts) when is_list(opts) do
+    opts
+    |> Keyword.get(:path)
+    |> case do
+      value when is_binary(value) and value != "" -> value
+      _ -> "n/a"
+    end
+  end
+
+  defp storage_path(_), do: "n/a"
 end
