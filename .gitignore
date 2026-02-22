@@ -12,3 +12,6 @@ jido_studio-*.tar
 /priv/plts/
 .DS_Store
 /node_modules/
+
+# Studio playground runtime artifacts (thread/checkpoint persistence)
+/dev/studio_playground/priv/jido_studio/storage/
