@@ -232,7 +232,15 @@ defmodule JidoStudio.Layouts do
       |> normalize_nav_item_path()
 
     current = normalize_nav_item_path(assigns.current_path || "")
-    active = current == full_path or String.starts_with?(current, full_path <> "/")
+    root_item? = normalize_nav_item_path(assigns.path) == "/"
+
+    active =
+      if root_item? do
+        current == full_path
+      else
+        current == full_path or String.starts_with?(current, full_path <> "/")
+      end
+
     href = Scope.with_scope_query(full_path, assigns.cluster_node_param || "all")
 
     assigns = assign(assigns, :active, active)

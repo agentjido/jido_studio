@@ -59,6 +59,20 @@ defmodule JidoStudio.IARoutesTest do
     assert html =~ "/studio/settings?node=#{node}"
   end
 
+  test "only one core nav item is active per page", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/studio/agents?node=all")
+
+    marker =
+      "span class=\"absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-js-primary rounded-r\""
+
+    active_marker_count =
+      String.split(html, marker)
+      |> length()
+      |> Kernel.-(1)
+
+    assert active_marker_count == 1
+  end
+
   defp index_of(haystack, needle) when is_binary(haystack) and is_binary(needle) do
     case :binary.match(haystack, needle) do
       {index, _len} -> index
