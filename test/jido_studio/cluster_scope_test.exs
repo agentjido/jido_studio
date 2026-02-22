@@ -2,6 +2,7 @@ defmodule JidoStudio.Cluster.ScopeTest do
   use ExUnit.Case, async: true
 
   alias JidoStudio.Cluster.Scope
+  alias JidoStudio.RuntimeScope
 
   test "normalizes invalid node to all" do
     assert Scope.normalize_node_param("missing@node") == "all"
@@ -28,5 +29,19 @@ defmodule JidoStudio.Cluster.ScopeTest do
   test "process node param storage" do
     assert :ok == Scope.put_process_node_param("all")
     assert Scope.current_node_param() == "all"
+  end
+
+  test "with_scope_query includes runtime key when present in process" do
+    options = [%{key: "primary", module: JidoStudio.TestJido, label: "Primary"}]
+    :ok = RuntimeScope.put_process_runtime_key("primary", options)
+
+    scoped = Scope.with_scope_query("/studio/agents?status=running", "all")
+    params = scoped |> URI.parse() |> Map.get(:query) |> URI.decode_query()
+
+    assert params["status"] == "running"
+    assert params["node"] == "all"
+    assert params["runtime"] == "primary"
+
+    :ok = RuntimeScope.put_process_runtime_key(nil, options)
   end
 end

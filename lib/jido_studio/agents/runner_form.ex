@@ -54,6 +54,7 @@ defmodule JidoStudio.Agents.RunnerForm do
   @spec select_signal(t(), String.t() | nil) :: t()
   def select_signal(%__MODULE__{} = form, key) do
     normalized = normalize_optional_string(key)
+
     %{form | selected_signal_key: normalized, selected_action_key: nil}
     |> disarm()
   end
@@ -61,6 +62,7 @@ defmodule JidoStudio.Agents.RunnerForm do
   @spec select_action(t(), String.t() | nil) :: t()
   def select_action(%__MODULE__{} = form, key) do
     normalized = normalize_optional_string(key)
+
     %{form | selected_signal_key: nil, selected_action_key: normalized}
     |> disarm()
   end
@@ -91,7 +93,8 @@ defmodule JidoStudio.Agents.RunnerForm do
 
   @spec can_execute?(t()) :: boolean()
   def can_execute?(%__MODULE__{} = form) do
-    match?({_, _}, selected_target(form)) and form.guard_armed? and form.guard_hash == payload_hash(form)
+    match?({_, _}, selected_target(form)) and form.guard_armed? and
+      form.guard_hash == payload_hash(form)
   end
 
   defp normalize(data) when is_map(data) do
@@ -100,9 +103,11 @@ defmodule JidoStudio.Agents.RunnerForm do
         normalize_optional_string(data[:selected_signal_key] || data["selected_signal_key"]),
       selected_action_key:
         normalize_optional_string(data[:selected_action_key] || data["selected_action_key"]),
-      dispatch_mode: normalize_enum(data[:dispatch_mode] || data["dispatch_mode"], @dispatch_modes, "sync"),
+      dispatch_mode:
+        normalize_enum(data[:dispatch_mode] || data["dispatch_mode"], @dispatch_modes, "sync"),
       payload_json: normalize_payload_json(data[:payload_json] || data["payload_json"]),
-      schema_mode: normalize_enum(data[:schema_mode] || data["schema_mode"], @schema_modes, "fields"),
+      schema_mode:
+        normalize_enum(data[:schema_mode] || data["schema_mode"], @schema_modes, "fields"),
       guard_armed?: data[:guard_armed?] == true or data["guard_armed?"] == true,
       guard_hash: normalize_optional_integer(data[:guard_hash] || data["guard_hash"])
     }

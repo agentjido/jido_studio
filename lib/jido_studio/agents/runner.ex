@@ -11,7 +11,9 @@ defmodule JidoStudio.Agents.Runner do
   def dispatch(pid, route_or_action_ref, payload, opts)
       when is_pid(pid) and is_map(route_or_action_ref) and is_map(payload) do
     mode = dispatch_mode(Keyword.get(opts, :dispatch_mode, :sync))
-    timeout_ms = normalize_timeout(Keyword.get(opts, :timeout_ms, AgentInteractions.runner_timeout_ms()))
+
+    timeout_ms =
+      normalize_timeout(Keyword.get(opts, :timeout_ms, AgentInteractions.runner_timeout_ms()))
 
     with {:ok, dispatch_ref} <- normalize_dispatch_ref(route_or_action_ref),
          {:ok, payload} <- validate_payload(dispatch_ref, payload),
@@ -141,7 +143,10 @@ defmodule JidoStudio.Agents.Runner do
   defp stringify_map_keys(_), do: %{}
 
   defp normalize_list_value(value) when is_map(value), do: stringify_map_keys(value)
-  defp normalize_list_value(value) when is_list(value), do: Enum.map(value, &normalize_list_value/1)
+
+  defp normalize_list_value(value) when is_list(value),
+    do: Enum.map(value, &normalize_list_value/1)
+
   defp normalize_list_value(value), do: value
 
   defp summarize_result(%{id: id, state: state}) do

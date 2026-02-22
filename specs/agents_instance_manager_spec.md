@@ -91,3 +91,27 @@ Minimum assign/state expectations:
 2. `Observe` supports quick event triage and thread context inspection.
 3. `Configure` exposes instance internals without hiding summary rail.
 4. Sharable URLs reopen same section/panel/scope.
+
+## Implementation Status (Current Branch)
+1. Route/section contract extraction is in place:
+- `lib/jido_studio/live/agents_live/contracts.ex`
+- `lib/jido_studio/live/agents_live/routes.ex`
+2. Runner/error state extraction is in place:
+- `lib/jido_studio/live/agents_live/runner_state.ex`
+- `lib/jido_studio/live/agents_live/errors.ex`
+3. Show/index helper extraction is in place:
+- `lib/jido_studio/live/agents_live/show_state.ex`
+- `lib/jido_studio/live/agents_live/index_state.ex`
+4. Observability helper extraction is in place:
+- `lib/jido_studio/live/agents_live/observability_state.ex`
+5. Render module footholds are in place:
+- `lib/jido_studio/live/agents_live/render/index_view.ex`
+- `lib/jido_studio/live/agents_live/render/instance_view.ex`
+6. Additional state breakup completed:
+- `lib/jido_studio/live/agents_live/workspace_state.ex`
+- `lib/jido_studio/live/agents_live/chat_state.ex`
+7. `AgentsLive` orchestration file is now under the maintainability target:
+- `lib/jido_studio/live/agents_live.ex` is currently under 900 LOC.
+8. Contract coverage added:
+- `test/jido_studio/agents_instance_routes_test.exs`
+- `test/jido_studio/agents_instance_layout_test.exs`

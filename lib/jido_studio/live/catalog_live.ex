@@ -6,7 +6,7 @@ defmodule JidoStudio.CatalogLive do
 
   alias JidoStudio.AgentRegistry
   alias JidoStudio.Cluster.RPC
-  alias JidoStudio.Cluster.Scope
+  alias JidoStudio.ScopeQuery
 
   @tabs ["agents", "actions", "sensors", "plugins"]
 
@@ -55,6 +55,7 @@ defmodule JidoStudio.CatalogLive do
            socket.assigns.tab,
            query,
            socket.assigns.selected_slug,
+           socket.assigns.runtime_key,
            socket.assigns.cluster_node_param
          )
      )}
@@ -70,6 +71,7 @@ defmodule JidoStudio.CatalogLive do
            socket.assigns.tab,
            socket.assigns.query,
            slug,
+           socket.assigns.runtime_key,
            socket.assigns.cluster_node_param
          )
      )}
@@ -93,7 +95,8 @@ defmodule JidoStudio.CatalogLive do
               class="w-64 rounded-md border border-js-border bg-js-bg-elevated px-3 py-1.5 text-xs text-js-text focus:outline-none focus:ring-2 focus:ring-js-ring"
             />
           </form>
-          <.badge variant={:default}>scope:{@cluster_node_param || "all"}</.badge>
+          <.badge variant={:default}>runtime:{@runtime_key || "default"}</.badge>
+          <.badge variant={:info}>node:{@cluster_node_param || "all"}</.badge>
         </:actions>
       </.page_header>
 
@@ -107,7 +110,7 @@ defmodule JidoStudio.CatalogLive do
       <div class="inline-flex rounded-lg border border-js-border p-1 bg-js-bg-elevated">
         <.link
           :for={tab <- @tabs}
-          navigate={path(@prefix, tab, @query, @selected_slug, @cluster_node_param)}
+          navigate={path(@prefix, tab, @query, @selected_slug, @runtime_key, @cluster_node_param)}
           class={[
             "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
             if(@tab == tab,
@@ -290,7 +293,7 @@ defmodule JidoStudio.CatalogLive do
   defp normalize_tab(tab) when tab in @tabs, do: tab
   defp normalize_tab(_), do: "agents"
 
-  defp path(prefix, tab, query, selected_slug, cluster_node_param) do
+  defp path(prefix, tab, query, selected_slug, runtime_key, cluster_node_param) do
     params =
       %{}
       |> maybe_put_param("tab", tab)
@@ -304,7 +307,7 @@ defmodule JidoStudio.CatalogLive do
         prefix <> "/catalog?" <> URI.encode_query(params)
       end
 
-    Scope.with_scope_query(base, cluster_node_param)
+    ScopeQuery.with_scope_query(base, runtime_key, cluster_node_param)
   end
 
   defp maybe_put_param(params, _key, nil), do: params

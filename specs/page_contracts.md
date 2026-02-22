@@ -6,9 +6,10 @@ Define the minimum contract for each top-level page so information architecture 
 ## Shared Contract (All Pages)
 1. Title and subtitle must answer the primary page question.
 2. Scope context (`runtime`, `node`) must be visible and preserved.
-3. Empty states must be explicit and actionable.
-4. Errors must include a next action link.
-5. No page should require deep technical knowledge for its primary action.
+3. Scope complexity is progressive: runtime summary first, node controls in Advanced Scope.
+4. Empty states must be explicit and actionable.
+5. Errors must include a next action link.
+6. No page should require deep technical knowledge for its primary action.
 
 ## Home
 Primary question: Are my Agents healthy right now?

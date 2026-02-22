@@ -195,7 +195,7 @@ defmodule JidoStudio.AgentsLiveTest do
     assert has_element?(view, "a", "Observe")
     assert has_element?(view, "a", "Configure")
     assert has_element?(view, "a[href*='/play'][href*='panel=interact']")
-    assert has_element?(view, "a[href*='?node=all&panel=interact']")
+    assert has_element?(view, "a[href*='node=all'][href*='panel=interact']")
     refute has_element?(view, "a[href*='?node=all?panel=interact']")
     refute has_element?(view, "a[href*='panel=thread_context']")
     assert has_element?(view, ".js-agent-summary-pane")

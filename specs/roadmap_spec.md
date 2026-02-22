@@ -39,6 +39,14 @@ Provide an implementation sequence that delivers a coherent operator-first produ
 - strengthen non-chat default flows
 - improve actionable error states
 
+### Progress Notes (Current Branch)
+- Added route/panel contract extraction (`contracts.ex`, `routes.ex`).
+- Added state-focused modules (`index_state.ex`, `show_state.ex`, `runner_state.ex`, `observability_state.ex`, `errors.ex`).
+- Added dedicated render modules (`render/index_view.ex`, `render/instance_view.ex`).
+- Added workspace/chat state modules (`workspace_state.ex`, `chat_state.ex`) and delegated `AgentsLive` flow/event logic.
+- Added route/layout regression coverage (`agents_instance_routes_test.exs`, `agents_instance_layout_test.exs`).
+- Reduced `AgentsLive` to orchestration and achieved sub-900 LOC target.
+
 ### Gates
 - section/panel route and persistence tests
 - visual stability tests for summary rail

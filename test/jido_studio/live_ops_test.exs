@@ -31,11 +31,21 @@ defmodule JidoStudio.LiveOpsTest do
   end
 
   test "viewer APIs no-op safely without presence module" do
-    Application.put_env(:jido_studio, :live_ops, enabled: true, viewer_tracking: true)
+    Application.put_env(:jido_studio, :live_ops,
+      enabled: true,
+      viewer_tracking: true,
+      presence_module: false
+    )
 
     assert LiveOps.subscribe_viewers("inst-1") == :ok
     assert LiveOps.track_viewer("inst-1", "viewer-1", %{}) == :ok
     assert LiveOps.untrack_viewer("inst-1", "viewer-1") == :ok
     assert LiveOps.viewer_count("inst-1") == 0
+  end
+
+  test "presence defaults to built-in module when not configured" do
+    Application.put_env(:jido_studio, :live_ops, enabled: true, viewer_tracking: true)
+
+    assert LiveOps.presence_available?()
   end
 end

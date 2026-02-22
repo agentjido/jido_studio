@@ -18,7 +18,10 @@ defmodule JidoStudio.Agents.ActionCatalog do
           convertible_schema?: boolean()
         }
 
-  @spec build(module() | nil, [map()], keyword()) :: %{actions: [action_row()], warnings: [String.t()]}
+  @spec build(module() | nil, [map()], keyword()) :: %{
+          actions: [action_row()],
+          warnings: [String.t()]
+        }
   def build(agent_module, signals, _opts \\ []) do
     strategy_module = safe_strategy_module(agent_module)
 
@@ -201,7 +204,10 @@ defmodule JidoStudio.Agents.ActionCatalog do
   rescue
     error ->
       {
-        fallback_action_row(row, "Failed to resolve strategy action: " <> Exception.message(error)),
+        fallback_action_row(
+          row,
+          "Failed to resolve strategy action: " <> Exception.message(error)
+        ),
         ["Failed to resolve strategy action #{row.key}: " <> Exception.message(error)]
       }
   end
@@ -264,7 +270,10 @@ defmodule JidoStudio.Agents.ActionCatalog do
   rescue
     error ->
       {
-        fallback_action_row(row, "Failed to resolve action metadata: " <> Exception.message(error)),
+        fallback_action_row(
+          row,
+          "Failed to resolve action metadata: " <> Exception.message(error)
+        ),
         ["Failed to resolve action #{row.key}: " <> Exception.message(error)]
       }
   end
@@ -361,7 +370,9 @@ defmodule JidoStudio.Agents.ActionCatalog do
   defp normalize_sources(values) when is_list(values) do
     values
     |> Enum.map(fn
-      value when is_atom(value) -> value
+      value when is_atom(value) ->
+        value
+
       value when is_binary(value) ->
         case value |> String.trim() |> String.downcase() do
           "runtime_router" -> :runtime_router
@@ -372,7 +383,8 @@ defmodule JidoStudio.Agents.ActionCatalog do
           _ -> :unknown
         end
 
-      _ -> :unknown
+      _ ->
+        :unknown
     end)
     |> Enum.uniq()
   rescue

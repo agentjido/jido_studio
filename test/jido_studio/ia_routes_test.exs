@@ -4,9 +4,9 @@ defmodule JidoStudio.IARoutesTest do
   test "root route renders HomeLive", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/studio")
 
-    assert html =~ "Your agent fleet at a glance"
-    assert html =~ "What this page is for"
+    assert html =~ "Operational overview with fast paths to action"
     assert html =~ "Click to play"
+    assert html =~ "Setup Assistant"
     assert html =~ "Calculator Agent"
     assert html =~ "Open Calculator Example"
   end
@@ -20,7 +20,10 @@ defmodule JidoStudio.IARoutesTest do
 
   test "registry route redirects to catalog preserving query params", %{conn: conn} do
     assert {:error, {:live_redirect, %{to: to_path}}} =
-             live(conn, "/studio/registry?tab=actions&q=tool&selected=my-action&node=all")
+             live(
+               conn,
+               "/studio/registry?tab=actions&q=tool&selected=my-action&node=all&runtime=primary"
+             )
 
     uri = URI.parse(to_path)
 
@@ -31,6 +34,7 @@ defmodule JidoStudio.IARoutesTest do
     assert params["q"] == "tool"
     assert params["selected"] == "my-action"
     assert params["node"] == "all"
+    assert params["runtime"] == "primary"
   end
 
   test "sidebar core nav order includes catalog above settings", %{conn: conn} do

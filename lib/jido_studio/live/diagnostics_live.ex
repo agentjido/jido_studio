@@ -5,7 +5,7 @@ defmodule JidoStudio.DiagnosticsLive do
   import JidoStudio.Components
 
   alias JidoStudio.Cluster.RPC
-  alias JidoStudio.Cluster.Scope
+  alias JidoStudio.ScopeQuery
 
   @refresh_ms 5_000
 
@@ -41,7 +41,8 @@ defmodule JidoStudio.DiagnosticsLive do
         subtitle="Technical tools for debugging agents and runtime behavior"
       >
         <:actions>
-          <.badge variant={:info}>scope:{@cluster_node_param || "all"}</.badge>
+          <.badge variant={:default}>runtime:{@runtime_key || "default"}</.badge>
+          <.badge variant={:info}>node:{@cluster_node_param || "all"}</.badge>
         </:actions>
       </.page_header>
 
@@ -90,31 +91,31 @@ defmodule JidoStudio.DiagnosticsLive do
           <h2 class="text-sm font-semibold text-js-text">Deep Tools</h2>
           <div class="mt-3 space-y-2">
             <.link
-              navigate={page_path(@prefix, "/traces", @cluster_node_param)}
+              navigate={page_path(@prefix, "/traces", @runtime_key, @cluster_node_param)}
               class="block rounded-md border border-js-border px-3 py-2 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Traces Explorer
             </.link>
             <.link
-              navigate={page_path(@prefix, "/actions", @cluster_node_param)}
+              navigate={page_path(@prefix, "/actions", @runtime_key, @cluster_node_param)}
               class="block rounded-md border border-js-border px-3 py-2 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Action Diagnostics
             </.link>
             <.link
-              navigate={page_path(@prefix, "/workflows", @cluster_node_param)}
+              navigate={page_path(@prefix, "/workflows", @runtime_key, @cluster_node_param)}
               class="block rounded-md border border-js-border px-3 py-2 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Workflow Analysis
             </.link>
             <.link
-              navigate={page_path(@prefix, "/signals", @cluster_node_param)}
+              navigate={page_path(@prefix, "/signals", @runtime_key, @cluster_node_param)}
               class="block rounded-md border border-js-border px-3 py-2 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Signal Stream
             </.link>
             <.link
-              navigate={page_path(@prefix, "/threads", @cluster_node_param)}
+              navigate={page_path(@prefix, "/threads", @runtime_key, @cluster_node_param)}
               class="block rounded-md border border-js-border px-3 py-2 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Threads and Memory
@@ -193,7 +194,7 @@ defmodule JidoStudio.DiagnosticsLive do
   defp bool_label(true), do: "available"
   defp bool_label(false), do: "not available"
 
-  defp page_path(prefix, suffix, node_param) do
-    Scope.with_scope_query(prefix <> suffix, node_param)
+  defp page_path(prefix, suffix, runtime_key, node_param) do
+    ScopeQuery.with_scope_query(prefix <> suffix, runtime_key, node_param)
   end
 end

@@ -109,6 +109,18 @@ config :jido_studio,
   jido_instance: MyApp.Jido
 ```
 
+Optional override for multi-runtime installs:
+
+```elixir
+config :jido_studio, :jido_instances, [
+  %{key: "primary", module: MyApp.Jido, label: "Primary"},
+  %{key: "batch", module: MyApp.BatchJido, label: "Batch Runtime"}
+]
+```
+
+When `:jido_instances` is present, Studio shows a runtime selector in the sidebar.
+When it is absent, Studio derives a single runtime from `:jido_instance` and keeps the UI simplified.
+
 Default observability persistence is ETS and needs no extra setup:
 
 ```elixir
@@ -150,7 +162,8 @@ config :jido_studio,
   ]
 ```
 
-If your host app uses Presence and PubSub, wire it for event-driven updates:
+Studio now ships a built-in Presence default (`JidoStudio.Presence`) so viewer tracking works out-of-the-box.
+If your host app already has its own Presence module, you can override it:
 
 ```elixir
 config :jido_studio,
@@ -276,7 +289,7 @@ Notes:
 - **Signal/Action Introspection** — Hybrid runtime+static consumed-signal routes, route origins, action targets, and schema extraction with safe fallbacks
 - **Guarded Runner** — Explicit arm-before-run execution, sync/async dispatch, payload JSON validation, and per-instance run history persistence
 - **Internal Agents by Tags** — Discovered agents are split into `Product Agents` and `Internal Agents` using `agent_interactions.internal_agent_tags`
-- **Cluster Scope Selector** — Global node scope (`node=all` or `node=<name>`) propagated across navigation
+- **Smart Scope Selector** — Runtime summary by default, optional runtime selector for multi-runtime installs, and advanced node scope (`node=all` or `node=<name>`) on demand
 - **Live Ops** — Event-driven updates with polling fallback, scoped subscriptions, and viewer presence topics
 - **Messages/Events/TODOs** — Runtime thread message snapshots, merged event stream with expandable raw payloads, and strategy TODO visibility
 - **Delegation/Tasks** — Sub-agent detail tabs (config/messages/middleware/tools/events) and task lifecycle visibility
@@ -294,6 +307,14 @@ Studio Playground seeds non-chat examples under `dev/studio_playground/lib/studi
 - `StudioPlayground.DemoAgents.DeviceControlAgent` — Schema-driven control flows with richer action payloads
 
 These examples are registered in `dev/studio_playground/lib/studio_playground/demo_agents.ex` so they appear in the active/discovered lists by default.
+
+## Smart Defaults
+
+- No new required config keys are needed for existing installs.
+- Scope defaults to `All Nodes` and a single derived runtime.
+- Runtime query support: `runtime=<runtime_key>` (propagated across Studio navigation).
+- Node query support remains: `node=all|<node_name>`.
+- Advanced node controls are collapsed by default and remembered locally in the browser.
 
 ## Observability Persistence
 

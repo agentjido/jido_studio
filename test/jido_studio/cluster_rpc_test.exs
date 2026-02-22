@@ -28,7 +28,9 @@ defmodule JidoStudio.Cluster.RPCTest do
             %{ok?: true, value: value} when is_integer(value) -> acc + value
             _ -> acc
           end
-        end, initial: 0)
+        end,
+        initial: 0
+      )
 
     assert total == 8
   end

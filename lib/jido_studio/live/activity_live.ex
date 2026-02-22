@@ -6,6 +6,7 @@ defmodule JidoStudio.ActivityLive do
 
   alias JidoStudio.Cluster.RPC
   alias JidoStudio.Cluster.Scope
+  alias JidoStudio.ScopeQuery
   alias JidoStudio.Observability.Actions
   alias JidoStudio.Observability.Signals
   alias JidoStudio.Observability.Workflows
@@ -42,7 +43,8 @@ defmodule JidoStudio.ActivityLive do
     <div class="p-6 space-y-6">
       <.page_header title="Activity" subtitle="Recent runtime activity and operational trends">
         <:actions>
-          <.badge variant={:info}>scope:{@cluster_node_param || "all"}</.badge>
+          <.badge variant={:default}>runtime:{@runtime_key || "default"}</.badge>
+          <.badge variant={:info}>node:{@cluster_node_param || "all"}</.badge>
         </:actions>
       </.page_header>
 
@@ -64,25 +66,25 @@ defmodule JidoStudio.ActivityLive do
           <h2 class="text-sm font-semibold text-js-text">Operational Timeline</h2>
           <div class="flex gap-2">
             <.link
-              navigate={page_path(@prefix, "/signals", @cluster_node_param)}
+              navigate={page_path(@prefix, "/signals", @runtime_key, @cluster_node_param)}
               class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Signals
             </.link>
             <.link
-              navigate={page_path(@prefix, "/actions", @cluster_node_param)}
+              navigate={page_path(@prefix, "/actions", @runtime_key, @cluster_node_param)}
               class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Actions
             </.link>
             <.link
-              navigate={page_path(@prefix, "/workflows", @cluster_node_param)}
+              navigate={page_path(@prefix, "/workflows", @runtime_key, @cluster_node_param)}
               class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Workflows
             </.link>
             <.link
-              navigate={page_path(@prefix, "/traces", @cluster_node_param)}
+              navigate={page_path(@prefix, "/traces", @runtime_key, @cluster_node_param)}
               class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Traces
@@ -261,7 +263,7 @@ defmodule JidoStudio.ActivityLive do
 
   defp format_timestamp(_), do: "-"
 
-  defp page_path(prefix, suffix, node_param) do
-    Scope.with_scope_query(prefix <> suffix, node_param)
+  defp page_path(prefix, suffix, runtime_key, node_param) do
+    ScopeQuery.with_scope_query(prefix <> suffix, runtime_key, node_param)
   end
 end

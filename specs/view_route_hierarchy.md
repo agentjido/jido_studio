@@ -61,7 +61,7 @@ Primary question: How is Studio configured?
 Primary question: What is Jido Studio and where do I go for help/community?
 
 ## Compatibility Routes
-- `GET <prefix>/registry` -> compatibility route (`JidoStudio.RegistryLive`) that redirects to `<prefix>/catalog`, preserving query params (including `node`).
+- `GET <prefix>/registry` -> compatibility route (`JidoStudio.RegistryLive`) that redirects to `<prefix>/catalog`, preserving query params (including `runtime` and `node`).
 
 ## Agent View Hierarchy
 ### Route Tree

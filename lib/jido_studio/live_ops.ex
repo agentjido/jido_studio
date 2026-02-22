@@ -5,17 +5,20 @@ defmodule JidoStudio.LiveOps do
 
   @spec child_specs(keyword()) :: [Supervisor.child_spec()]
   def child_specs(_opts \\ []) do
-    case pubsub_name() do
-      JidoStudio.PubSub ->
-        if Process.whereis(JidoStudio.PubSub) do
-          []
-        else
-          [{Phoenix.PubSub, name: JidoStudio.PubSub}]
-        end
+    pubsub_specs =
+      case pubsub_name() do
+        JidoStudio.PubSub ->
+          if Process.whereis(JidoStudio.PubSub) do
+            []
+          else
+            [{Phoenix.PubSub, name: JidoStudio.PubSub}]
+          end
 
-      _ ->
-        []
-    end
+        _ ->
+          []
+      end
+
+    pubsub_specs ++ presence_child_specs()
   end
 
   @spec enabled?() :: boolean()
@@ -114,7 +117,7 @@ defmodule JidoStudio.LiveOps do
              viewer_id != "" do
     with true <- enabled?(),
          true <- viewer_tracking?(),
-         module when is_atom(module) <- config(:presence_module, nil),
+         module when is_atom(module) <- presence_module(),
          true <- Code.ensure_loaded?(module),
          true <- function_exported?(module, :track, 4) do
       topic = viewer_topic(instance_id)
@@ -134,7 +137,7 @@ defmodule JidoStudio.LiveOps do
              viewer_id != "" do
     with true <- enabled?(),
          true <- viewer_tracking?(),
-         module when is_atom(module) <- config(:presence_module, nil),
+         module when is_atom(module) <- presence_module(),
          true <- Code.ensure_loaded?(module),
          true <- function_exported?(module, :untrack, 3) do
       _ = module.untrack(self(), viewer_topic(instance_id), viewer_id)
@@ -150,7 +153,7 @@ defmodule JidoStudio.LiveOps do
   def viewer_count(instance_id) when is_binary(instance_id) and instance_id != "" do
     with true <- enabled?(),
          true <- viewer_tracking?(),
-         module when is_atom(module) <- config(:presence_module, nil),
+         module when is_atom(module) <- presence_module(),
          true <- Code.ensure_loaded?(module),
          true <- function_exported?(module, :list, 1),
          presences when is_map(presences) <- module.list(viewer_topic(instance_id)) do
@@ -209,7 +212,7 @@ defmodule JidoStudio.LiveOps do
 
   @spec presence_available?() :: boolean()
   def presence_available? do
-    case config(:presence_module, nil) do
+    case presence_module() do
       module when is_atom(module) ->
         Code.ensure_loaded?(module) and function_exported?(module, :list, 1)
 
@@ -277,6 +280,30 @@ defmodule JidoStudio.LiveOps do
     :jido_studio
     |> Application.get_env(:live_ops, [])
     |> Keyword.get(key, default)
+  end
+
+  defp presence_child_specs do
+    case presence_module() do
+      JidoStudio.Presence ->
+        if Process.whereis(JidoStudio.Presence) do
+          []
+        else
+          [{JidoStudio.Presence, pubsub_server: pubsub_name()}]
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp presence_module do
+    case config(:presence_module, :default) do
+      false -> nil
+      nil -> JidoStudio.Presence
+      :default -> JidoStudio.Presence
+      module when is_atom(module) -> module
+      _ -> JidoStudio.Presence
+    end
   end
 
   defp normalize_viewer_metadata(metadata) when is_map(metadata) do

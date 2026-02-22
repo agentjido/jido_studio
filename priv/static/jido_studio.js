@@ -156,6 +156,8 @@
   }
 
   var HOME_EXAMPLE_STORAGE_KEY = "jido-studio-home-example-hidden";
+  var HOME_SETUP_STORAGE_KEY = "jido-studio-home-setup-hidden";
+  var HOME_SETUP_COMPLETE_EMITTED = false;
 
   function readHomeExampleHidden() {
     try {
@@ -177,6 +179,26 @@
     }
   }
 
+  function readHomeSetupHidden() {
+    try {
+      return localStorage.getItem(HOME_SETUP_STORAGE_KEY) === "1";
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function writeHomeSetupHidden(hidden) {
+    try {
+      if (hidden) {
+        localStorage.setItem(HOME_SETUP_STORAGE_KEY, "1");
+      } else {
+        localStorage.removeItem(HOME_SETUP_STORAGE_KEY);
+      }
+    } catch (_error) {
+      // ignore storage failures
+    }
+  }
+
   function syncHomeExampleVisibility() {
     var hidden = readHomeExampleHidden();
 
@@ -186,6 +208,40 @@
 
       if (card) card.classList.toggle("hidden", hidden);
       if (show) show.classList.toggle("hidden", !hidden);
+    });
+  }
+
+  function syncHomeSetupVisibility() {
+    var hidden = readHomeSetupHidden();
+
+    document.querySelectorAll("[data-js-home-setup]").forEach(function (root) {
+      var complete = root.getAttribute("data-js-home-setup-complete") === "true";
+      var grid = root.querySelector("[data-js-home-setup-grid]");
+      var card = root.querySelector("[data-js-home-setup-card]");
+      var show = root.querySelector("[data-js-home-setup-show]");
+      var shouldHide = hidden && complete;
+
+      if (!complete && hidden) {
+        writeHomeSetupHidden(false);
+        shouldHide = false;
+      }
+
+      if (grid) {
+        grid.classList.toggle("xl:grid-cols-1", shouldHide);
+        grid.classList.toggle("xl:grid-cols-2", !shouldHide);
+      }
+
+      if (card) card.classList.toggle("hidden", shouldHide);
+      if (show) show.classList.toggle("hidden", !shouldHide);
+
+      if (complete && !HOME_SETUP_COMPLETE_EMITTED) {
+        HOME_SETUP_COMPLETE_EMITTED = true;
+        window.dispatchEvent(new CustomEvent("jido-studio:setup-completed"));
+      }
+
+      if (!complete) {
+        HOME_SETUP_COMPLETE_EMITTED = false;
+      }
     });
   }
 
@@ -241,6 +297,28 @@
       if (showButton) {
         writeHomeExampleHidden(false);
         syncHomeExampleVisibility();
+        return;
+      }
+
+      var hideSetupButton =
+        event.target && event.target.closest
+          ? event.target.closest("[data-js-home-setup-hide]")
+          : null;
+
+      if (hideSetupButton) {
+        writeHomeSetupHidden(true);
+        syncHomeSetupVisibility();
+        return;
+      }
+
+      var showSetupButton =
+        event.target && event.target.closest
+          ? event.target.closest("[data-js-home-setup-show-btn]")
+          : null;
+
+      if (showSetupButton) {
+        writeHomeSetupHidden(false);
+        syncHomeSetupVisibility();
       }
     },
     true
@@ -255,8 +333,12 @@
   document.addEventListener("DOMContentLoaded", syncHomeExampleVisibility);
   window.addEventListener("pageshow", syncHomeExampleVisibility);
   window.addEventListener("phx:page-loading-stop", syncHomeExampleVisibility);
+  document.addEventListener("DOMContentLoaded", syncHomeSetupVisibility);
+  window.addEventListener("pageshow", syncHomeSetupVisibility);
+  window.addEventListener("phx:page-loading-stop", syncHomeSetupVisibility);
   window.setInterval(refreshTimeElements, 15 * 1000);
   setTimeout(syncAllComposerInputs, 0);
   setTimeout(syncClientTime, 0);
   setTimeout(syncHomeExampleVisibility, 0);
+  setTimeout(syncHomeSetupVisibility, 0);
 })();

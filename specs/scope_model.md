@@ -50,13 +50,12 @@ Backwards-compatible:
   - `%{key: "primary", module: MyApp.Jido, label: "Primary Runtime"},`
   - `%{key: "sandbox", module: MyApp.SandboxJido, label: "Sandbox Runtime"}`
   - `]`
-  - `config :jido_studio, :default_jido_instance_key, "primary"`
 
 If `:jido_instances` is missing, Studio derives a single option from `:jido_instance`.
 
 ### Session/Assign Contract
-- `:jido_runtime_options` -> list of available runtimes
-- `:jido_runtime_key` -> selected runtime key
+- `:runtime_options` -> list of available runtimes
+- `:runtime_key` -> selected runtime key (query-visible in multi-runtime mode)
 - `:jido_instance` -> selected runtime module (resolved)
 - `:runtime_scope_warning` -> invalid/unavailable runtime warning
 
@@ -64,6 +63,7 @@ If `:jido_instances` is missing, Studio derives a single option from `:jido_inst
 Use existing cluster model with progressive disclosure:
 - `node=all` default
 - node selector visible only in Advanced Scope mode
+- advanced scope expansion persisted locally (browser storage)
 - cluster warning surfaces explicitly when node is unavailable
 
 ## Data Access Contract

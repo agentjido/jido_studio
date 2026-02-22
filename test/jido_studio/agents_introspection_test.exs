@@ -51,7 +51,11 @@ defmodule JidoStudio.AgentsIntrospectionTest do
     assert Enum.any?(model.signals, &(&1.signal_type == "strategy.input"))
     assert Enum.any?(model.signals, &(&1.signal_type == "agent.control"))
     assert Enum.any?(model.signals, &(&1.signal_type == "plugin.demo"))
-    assert Enum.any?(model.signals, &(&1.signal_type == "plugin.__schedule__.tick" and &1.advanced?))
+
+    assert Enum.any?(
+             model.signals,
+             &(&1.signal_type == "plugin.__schedule__.tick" and &1.advanced?)
+           )
 
     assert Enum.any?(model.actions, &(&1.kind == :strategy_cmd))
   end

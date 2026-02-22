@@ -5,10 +5,13 @@ defmodule JidoStudio.Live.AgentsLive.Support do
 
   alias JidoStudio.AgentInteractions
   alias JidoStudio.Agents.InstanceIndex
-  alias JidoStudio.Agents.MessageSnapshot
-  alias JidoStudio.Agents.RunnerForm
-  alias JidoStudio.Cluster.Scope
   alias JidoStudio.Delegation
+  alias JidoStudio.Live.AgentsLive.Contracts
+  alias JidoStudio.Live.AgentsLive.Errors
+  alias JidoStudio.Live.AgentsLive.Routes
+  alias JidoStudio.Live.AgentsLive.RunnerState
+  alias JidoStudio.Live.AgentsLive.Support.EventHelpers
+  alias JidoStudio.Live.AgentsLive.Support.ScopeHelpers
   alias JidoStudio.LiveOps
   alias JidoStudio.Naming
   alias JidoStudio.TraceBuffer
@@ -17,35 +20,9 @@ defmodule JidoStudio.Live.AgentsLive.Support do
     "studio-viewer-" <> Integer.to_string(System.unique_integer([:positive, :monotonic]))
   end
 
-  def event_metadata_value(event, key) when is_map(event) do
-    metadata = Map.get(event, :metadata, %{})
-    Map.get(metadata, key, Map.get(metadata, Atom.to_string(key)))
-  end
-
-  def event_metadata_value(_event, _key), do: nil
-
-  def format_event_name(event) when is_map(event) do
-    cond do
-      is_binary(event[:event_name]) ->
-        event[:event_name]
-
-      is_list(event[:event_prefix]) ->
-        Enum.join(event[:event_prefix], ".")
-
-      true ->
-        "event"
-    end
-  end
-
-  def format_event_name(_), do: "event"
-
-  def format_event_timestamp(ts) when is_integer(ts) do
-    ts
-    |> DateTime.from_unix!(:millisecond)
-    |> Calendar.strftime("%H:%M:%S")
-  end
-
-  def format_event_timestamp(_), do: "--:--:--"
+  defdelegate event_metadata_value(event, key), to: EventHelpers
+  defdelegate format_event_name(event), to: EventHelpers
+  defdelegate format_event_timestamp(ts), to: EventHelpers
 
   def short_instance_id(id) when is_binary(id) do
     if String.length(id) <= 12, do: id, else: String.slice(id, 0, 12)
@@ -206,205 +183,20 @@ defmodule JidoStudio.Live.AgentsLive.Support do
   def interaction_actions_for_display(%{actions: actions}) when is_list(actions), do: actions
   def interaction_actions_for_display(_), do: []
 
-  def sync_runner_form(%RunnerForm{} = existing, interaction_model) do
-    signals = interaction_model[:signals] || []
-    actions = interaction_model[:actions] || []
+  defdelegate sync_runner_form(existing, interaction_model), to: RunnerState
+  defdelegate maybe_apply_payload_template(form, interaction_model, selection), to: RunnerState
+  defdelegate payload_template_for_selection(interaction_model, selection), to: RunnerState
+  defdelegate payload_template_from_action(action), to: RunnerState
+  defdelegate selected_dispatch_ref(socket), to: RunnerState
+  defdelegate schema_for_signal(interaction_model, signal_type), to: RunnerState
+  defdelegate decode_runner_payload(payload_json), to: RunnerState
+  defdelegate normalize_runner_history_entry(result, dispatch_ref), to: RunnerState
+  defdelegate prepend_runner_history(history, entry), to: RunnerState
+  defdelegate update_interaction_history(history, instance_id, entries), to: RunnerState
+  defdelegate current_runner_history(socket, instance_id), to: RunnerState
 
-    selected_signal_ok? =
-      is_binary(existing.selected_signal_key) and
-        Enum.any?(signals, &(&1[:key] == existing.selected_signal_key))
-
-    selected_action_ok? =
-      is_binary(existing.selected_action_key) and
-        Enum.any?(actions, &(&1[:key] == existing.selected_action_key))
-
-    cond do
-      selected_signal_ok? or selected_action_ok? ->
-        existing
-
-      signals != [] ->
-        existing
-        |> RunnerForm.select_signal(hd(signals)[:key])
-        |> maybe_apply_payload_template(interaction_model, {:signal, hd(signals)[:key]})
-
-      actions != [] ->
-        existing
-        |> RunnerForm.select_action(hd(actions)[:key])
-        |> maybe_apply_payload_template(interaction_model, {:action, hd(actions)[:key]})
-
-      true ->
-        RunnerForm.new()
-    end
-  end
-
-  def sync_runner_form(_, interaction_model) do
-    sync_runner_form(RunnerForm.new(), interaction_model)
-  end
-
-  def maybe_apply_payload_template(%RunnerForm{} = form, interaction_model, selection) do
-    template = payload_template_for_selection(interaction_model, selection)
-
-    if form.payload_json in [nil, "", "{}"] and template not in [nil, "{}", ""] do
-      RunnerForm.parse(%{"payload_json" => template}, form)
-    else
-      form
-    end
-  end
-
-  def payload_template_for_selection(interaction_model, {:signal, key}) do
-    signals = interaction_model[:signals] || []
-    signal = Enum.find(signals, &(&1[:key] == key))
-
-    action =
-      if signal do
-        actions = interaction_model[:actions] || []
-        Enum.find(actions, &(&1[:primary_signal_type] == signal[:signal_type]))
-      else
-        nil
-      end
-
-    payload_template_from_action(action)
-  end
-
-  def payload_template_for_selection(interaction_model, {:action, key}) do
-    action = Enum.find(interaction_model[:actions] || [], &(&1[:key] == key))
-    payload_template_from_action(action)
-  end
-
-  def payload_template_for_selection(_, _), do: "{}"
-
-  def payload_template_from_action(nil), do: "{}"
-
-  def payload_template_from_action(%{required_fields: fields}) when is_list(fields) do
-    fields
-    |> Enum.reduce(%{}, fn field, acc -> Map.put(acc, field, "<value>") end)
-    |> Jason.encode!()
-  rescue
-    _ -> "{}"
-  end
-
-  def payload_template_from_action(_), do: "{}"
-
-  def selected_dispatch_ref(socket) do
-    case RunnerForm.selected_target(socket.assigns.runner_form) do
-      {:signal, key} ->
-        signal =
-          socket.assigns.interaction_model.signals
-          |> List.wrap()
-          |> Enum.find(&(&1[:key] == key))
-
-        if is_map(signal) do
-          {:ok,
-           %{
-             kind: :signal,
-             signal_type: signal[:signal_type],
-             source: "/jido_studio/interact",
-             schema: schema_for_signal(socket.assigns.interaction_model, signal[:signal_type])
-           }}
-        else
-          {:error, :signal_not_found}
-        end
-
-      {:action, key} ->
-        action =
-          socket.assigns.interaction_model.actions
-          |> List.wrap()
-          |> Enum.find(&(&1[:key] == key))
-
-        if is_map(action) and is_binary(action[:primary_signal_type]) do
-          {:ok,
-           %{
-             kind: :action,
-             primary_signal_type: action[:primary_signal_type],
-             source: "/jido_studio/interact",
-             schema: action[:schema]
-           }}
-        else
-          {:error, :action_not_dispatchable}
-        end
-
-      _ ->
-        {:error, :no_target_selected}
-    end
-  end
-
-  def schema_for_signal(interaction_model, signal_type) when is_binary(signal_type) do
-    interaction_model[:actions]
-    |> List.wrap()
-    |> Enum.find(&(&1[:primary_signal_type] == signal_type))
-    |> case do
-      %{schema: schema} -> schema
-      _ -> nil
-    end
-  end
-
-  def schema_for_signal(_, _), do: nil
-
-  def decode_runner_payload(payload_json) when is_binary(payload_json) do
-    case Jason.decode(payload_json) do
-      {:ok, %{} = payload} -> {:ok, payload}
-      {:ok, _other} -> {:error, :payload_must_be_json_object}
-      {:error, error} -> {:error, {:invalid_json, Exception.message(error)}}
-    end
-  end
-
-  def decode_runner_payload(_), do: {:error, :payload_must_be_json_object}
-
-  def normalize_runner_history_entry(result, dispatch_ref) when is_map(result) do
-    %{
-      timestamp_ms: result[:timestamp_ms] || System.system_time(:millisecond),
-      mode: result[:mode] || :sync,
-      signal_type: dispatch_ref[:signal_type] || dispatch_ref[:primary_signal_type] || "unknown",
-      status:
-        result
-        |> get_in([:result, :status])
-        |> case do
-          nil -> :ok
-          value -> value
-        end
-    }
-  end
-
-  def normalize_runner_history_entry(_result, dispatch_ref) do
-    %{
-      timestamp_ms: System.system_time(:millisecond),
-      mode: :sync,
-      signal_type: dispatch_ref[:signal_type] || dispatch_ref[:primary_signal_type] || "unknown",
-      status: :ok
-    }
-  end
-
-  def prepend_runner_history(history, entry) do
-    limit = AgentInteractions.runner_history_limit()
-    [entry | List.wrap(history)] |> Enum.take(limit)
-  end
-
-  def update_interaction_history(history, instance_id, entries)
-      when is_map(history) and is_binary(instance_id) do
-    Map.put(history, instance_id, List.wrap(entries))
-  end
-
-  def update_interaction_history(history, _instance_id, _entries) when is_map(history),
-    do: history
-
-  def update_interaction_history(_, _instance_id, _entries), do: %{}
-
-  def current_runner_history(socket, instance_id) when is_binary(instance_id) do
-    socket.assigns[:interaction_history]
-    |> case do
-      history when is_map(history) -> Map.get(history, instance_id, [])
-      _ -> []
-    end
-  end
-
-  def current_runner_history(_, _), do: []
-
-  def format_dispatch_error({:invalid_json, message}), do: "Invalid JSON: " <> message
-
-  def format_dispatch_error({:payload_validation_failed, reason}),
-    do: "Payload validation failed: " <> inspect(reason)
-
-  def format_dispatch_error(reason), do: inspect(reason)
+  defdelegate format_dispatch_error(reason), to: Errors
+  defdelegate chat_unavailable_message(reason), to: Errors
 
   def maybe_subscribe_viewers(socket, active_instances)
       when is_list(active_instances) do
@@ -623,136 +415,12 @@ defmodule JidoStudio.Live.AgentsLive.Support do
     assign(socket, :subagent_events, %{subagent_id => events})
   end
 
-  def normalize_scope_filters(scope_params) when is_map(scope_params) do
-    %{
-      project_id: normalize_scope_value(scope_params["project_id"] || scope_params[:project_id]),
-      user_id: normalize_scope_value(scope_params["user_id"] || scope_params[:user_id]),
-      agent_id: normalize_scope_value(scope_params["agent_id"] || scope_params[:agent_id])
-    }
-  end
-
-  def normalize_scope_filters(_), do: %{project_id: nil, user_id: nil, agent_id: nil}
-
-  def merge_scope_filters(existing, nil) when is_map(existing), do: existing
-
-  def merge_scope_filters(existing, scope_params) when is_map(existing) do
-    incoming = normalize_scope_filters(scope_params)
-
-    if incoming.project_id || incoming.user_id || incoming.agent_id do
-      incoming
-    else
-      existing
-    end
-  end
-
-  def merge_scope_filters(_, scope_params), do: normalize_scope_filters(scope_params)
-
-  def normalize_scope_value(nil), do: nil
-
-  def normalize_scope_value(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      normalized -> normalized
-    end
-  end
-
-  def normalize_scope_value(value) when is_atom(value), do: Atom.to_string(value)
-  def normalize_scope_value(_), do: nil
-
-  def filter_agents_by_scope(agents, nil), do: agents
-
-  def filter_agents_by_scope(agents, scope_filters)
-      when is_list(agents) and is_map(scope_filters) do
-    agent_id_query = normalize_scope_value(scope_filters.agent_id)
-    scoped_instance_ids = scope_candidate_instance_ids(scope_filters)
-
-    Enum.filter(agents, fn agent ->
-      running_instances = agent.running_instances || []
-      instance_ids = Enum.map(running_instances, &to_string(&1.id))
-
-      agent_match? =
-        case agent_id_query do
-          nil ->
-            true
-
-          query ->
-            String.contains?(String.downcase(agent.slug || ""), String.downcase(query)) or
-              String.contains?(String.downcase(agent.name || ""), String.downcase(query)) or
-              Enum.any?(
-                instance_ids,
-                &String.contains?(String.downcase(&1), String.downcase(query))
-              )
-        end
-
-      scope_match? =
-        case scoped_instance_ids do
-          :all ->
-            true
-
-          ids when is_struct(ids, MapSet) ->
-            if MapSet.size(ids) > 0 do
-              Enum.any?(instance_ids, &MapSet.member?(ids, &1))
-            else
-              false
-            end
-
-          _ ->
-            true
-        end
-
-      agent_match? and scope_match?
-    end)
-  end
-
-  def filter_agents_by_scope(agents, _), do: agents
-
-  def scope_candidate_instance_ids(scope_filters) do
-    project_id = normalize_scope_value(scope_filters.project_id)
-    user_id = normalize_scope_value(scope_filters.user_id)
-
-    if is_nil(project_id) and is_nil(user_id) do
-      :all
-    else
-      TraceBuffer.events(2_000)
-      |> Enum.reduce(MapSet.new(), fn event, acc ->
-        scope = event[:scope] || event[:metadata] || %{}
-        event_project_id = scope[:project_id] || scope["project_id"]
-        event_user_id = scope[:user_id] || scope["user_id"]
-        agent_id = event[:agent_id] || event[:instance_id]
-
-        project_ok = is_nil(project_id) or to_string(event_project_id) == project_id
-        user_ok = is_nil(user_id) or to_string(event_user_id) == user_id
-
-        if project_ok and user_ok and is_binary(agent_id) do
-          MapSet.put(acc, agent_id)
-        else
-          acc
-        end
-      end)
-    end
-  end
-
-  def scope_filters_match?(_event_scope, nil), do: true
-
-  def scope_filters_match?(event_scope, scope_filters) when is_map(scope_filters) do
-    scope =
-      cond do
-        is_map(event_scope) -> event_scope
-        is_list(event_scope) -> Map.new(event_scope)
-        true -> %{}
-      end
-
-    project_id = normalize_scope_value(scope_filters.project_id)
-    user_id = normalize_scope_value(scope_filters.user_id)
-
-    project_ok =
-      is_nil(project_id) or to_string(scope[:project_id] || scope["project_id"]) == project_id
-
-    user_ok = is_nil(user_id) or to_string(scope[:user_id] || scope["user_id"]) == user_id
-    project_ok and user_ok
-  end
-
-  def scope_filters_match?(_, _), do: true
+  defdelegate normalize_scope_filters(scope_params), to: ScopeHelpers
+  defdelegate merge_scope_filters(existing, scope_params), to: ScopeHelpers
+  defdelegate normalize_scope_value(value), to: ScopeHelpers
+  defdelegate filter_agents_by_scope(agents, scope_filters), to: ScopeHelpers
+  defdelegate scope_candidate_instance_ids(scope_filters), to: ScopeHelpers
+  defdelegate scope_filters_match?(event_scope, scope_filters), to: ScopeHelpers
 
   def infer_debug_level(false, _current), do: "off"
   def infer_debug_level(true, "verbose"), do: "verbose"
@@ -778,119 +446,14 @@ defmodule JidoStudio.Live.AgentsLive.Support do
   def task_badge_variant(:running), do: :info
   def task_badge_variant(_), do: :default
 
-  @workbench_sections [
-    %{
-      id: :play,
-      label: "Play",
-      default_tab: :chat,
-      tabs: [
-        %{id: :chat, label: "Chat"},
-        %{id: :interact, label: "Interact"},
-        %{id: :messages, label: "Messages"}
-      ]
-    },
-    %{
-      id: :observe,
-      label: "Observe",
-      default_tab: :events,
-      tabs: [
-        %{id: :events, label: "Events"},
-        %{id: :todos, label: "TODOs"},
-        %{id: :thread_context, label: "Thread Context"},
-        %{id: :thread_events, label: "Thread Events"}
-      ]
-    },
-    %{
-      id: :configure,
-      label: "Configure",
-      default_tab: :instance,
-      tabs: [
-        %{id: :instance, label: "Instance"},
-        %{id: :sub_agents, label: "Sub-Agents"},
-        %{id: :tasks, label: "Tasks"},
-        %{id: :tool_insights, label: "Tool Insights"},
-        %{id: :middleware, label: "Middleware"}
-      ]
-    }
-  ]
-
-  @workbench_tab_order [
-    :chat,
-    :interact,
-    :messages,
-    :events,
-    :todos,
-    :thread_context,
-    :thread_events,
-    :instance,
-    :sub_agents,
-    :tasks,
-    :tool_insights,
-    :middleware
-  ]
-
-  @workbench_tabs_by_section Enum.reduce(@workbench_sections, %{}, fn section, acc ->
-                               Enum.reduce(section.tabs, acc, fn tab, inner ->
-                                 Map.put(inner, tab.id, section.id)
-                               end)
-                             end)
-
-  def workbench_sections, do: @workbench_sections
-
-  def parse_instance_section(section)
-
-  def parse_instance_section(section) when section in [:play, :observe, :configure], do: section
-  def parse_instance_section("play"), do: :play
-  def parse_instance_section("observe"), do: :observe
-  def parse_instance_section("configure"), do: :configure
-  def parse_instance_section(_), do: :play
-
-  def section_query_value(:play), do: "play"
-  def section_query_value(:observe), do: "observe"
-  def section_query_value(:configure), do: "configure"
-  def section_query_value(_), do: "play"
-
-  def default_workbench_tab_for_section(section) do
-    section =
-      section
-      |> parse_instance_section()
-
-    section =
-      Enum.find(@workbench_sections, &(&1.id == section)) ||
-        Enum.find(@workbench_sections, &(&1.id == :play))
-
-    section.default_tab
-  end
-
-  def workbench_tabs_for_section(section) do
-    section =
-      section
-      |> parse_instance_section()
-
-    section =
-      Enum.find(@workbench_sections, &(&1.id == section)) ||
-        Enum.find(@workbench_sections, &(&1.id == :play))
-
-    section.tabs
-  end
-
-  def section_description(:play), do: "Try interactions and send messages."
-  def section_description(:observe), do: "Track events, TODOs, and runtime flow."
-  def section_description(:configure), do: "Inspect instance details and tools."
-  def section_description(_), do: "Inspect and operate this instance."
-
-  def workbench_tab_in_section?(tab, section) do
-    tab = parse_workbench_tab(tab)
-
-    section
-    |> workbench_tabs_for_section()
-    |> Enum.any?(&(&1.id == tab))
-  end
-
-  def section_for_workbench_tab(tab) do
-    tab = parse_workbench_tab(tab)
-    Map.get(@workbench_tabs_by_section, tab, :play)
-  end
+  defdelegate workbench_sections(), to: Contracts
+  defdelegate parse_instance_section(section), to: Contracts
+  defdelegate section_query_value(section), to: Contracts
+  defdelegate default_workbench_tab_for_section(section), to: Contracts
+  defdelegate workbench_tabs_for_section(section), to: Contracts
+  defdelegate section_description(section), to: Contracts
+  defdelegate workbench_tab_in_section?(tab, section), to: Contracts
+  defdelegate section_for_workbench_tab(tab), to: Contracts
 
   def workbench_tab_button_class(active?) do
     base = "js-instance-menu-tab"
@@ -913,82 +476,11 @@ defmodule JidoStudio.Live.AgentsLive.Support do
   def workbench_threads_rail_class(true), do: "md:row-span-2 lg:row-span-1"
   def workbench_threads_rail_class(false), do: nil
 
-  def parse_workbench_tab(panel, legacy_view \\ nil)
-
-  def parse_workbench_tab(panel, _legacy_view)
-      when panel in @workbench_tab_order,
-      do: panel
-
-  def parse_workbench_tab("chat", _legacy_view), do: :chat
-  def parse_workbench_tab("interact", _legacy_view), do: :interact
-  def parse_workbench_tab("messages", _legacy_view), do: :messages
-  def parse_workbench_tab("events", _legacy_view), do: :events
-  def parse_workbench_tab("todos", _legacy_view), do: :todos
-  def parse_workbench_tab("thread_context", _legacy_view), do: :thread_context
-  def parse_workbench_tab("context", _legacy_view), do: :thread_context
-  def parse_workbench_tab("thread_events", _legacy_view), do: :thread_events
-  def parse_workbench_tab("thread_events_legacy", _legacy_view), do: :thread_events
-  def parse_workbench_tab("instance", _legacy_view), do: :instance
-  def parse_workbench_tab("sub_agents", _legacy_view), do: :sub_agents
-  def parse_workbench_tab("tasks", _legacy_view), do: :tasks
-  def parse_workbench_tab("tool_insights", _legacy_view), do: :tool_insights
-  def parse_workbench_tab("middleware", _legacy_view), do: :middleware
-  def parse_workbench_tab(_, "inspect"), do: :instance
-  def parse_workbench_tab(_, :inspect), do: :instance
-  def parse_workbench_tab(_, _), do: :chat
-
-  def workbench_section_path(prefix, agent, instance_id, section) do
-    section =
-      section
-      |> parse_instance_section()
-      |> section_query_value()
-
-    path = "#{prefix}/agents/#{agent.slug}/#{URI.encode_www_form(instance_id)}/#{section}"
-    Scope.with_scope_query(path, Scope.current_node_param())
-  end
-
-  def workbench_path(prefix, agent, instance_id, panel, tab, section \\ nil) do
-    panel = parse_workbench_tab(panel)
-    section = parse_instance_section(section || section_for_workbench_tab(panel))
-    default_panel = default_workbench_tab_for_section(section)
-    base = workbench_section_path(prefix, agent, instance_id, section)
-    panel_value = panel_query_value(panel)
-    tab_value = tab_query_value(tab)
-
-    params =
-      if(panel != default_panel, do: [{"panel", panel_value}], else: []) ++
-        if(panel == :instance and is_binary(tab_value), do: [{"tab", tab_value}], else: [])
-
-    query =
-      params
-      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-      |> URI.encode_query()
-
-    if query == "" do
-      base
-    else
-      separator = if String.contains?(base, "?"), do: "&", else: "?"
-      "#{base}#{separator}#{query}"
-    end
-  end
-
-  def panel_query_value(:chat), do: "chat"
-  def panel_query_value(:interact), do: "interact"
-  def panel_query_value(:messages), do: "messages"
-  def panel_query_value(:events), do: "events"
-  def panel_query_value(:todos), do: "todos"
-  def panel_query_value(:thread_context), do: "thread_context"
-  def panel_query_value(:thread_events), do: "thread_events"
-  def panel_query_value(:instance), do: "instance"
-  def panel_query_value(:sub_agents), do: "sub_agents"
-  def panel_query_value(:tasks), do: "tasks"
-  def panel_query_value(:tool_insights), do: "tool_insights"
-  def panel_query_value(:middleware), do: "middleware"
-  def panel_query_value(_), do: "chat"
-
-  def tab_query_value(tab) when is_atom(tab), do: Atom.to_string(tab)
-  def tab_query_value(tab) when is_binary(tab) and tab != "", do: tab
-  def tab_query_value(_), do: nil
+  defdelegate parse_workbench_tab(panel, legacy_view \\ nil), to: Contracts
+  defdelegate panel_query_value(panel), to: Contracts
+  defdelegate tab_query_value(tab), to: Contracts
+  defdelegate workbench_section_path(prefix, agent, instance_id, section), to: Routes
+  defdelegate workbench_path(prefix, agent, instance_id, panel, tab, section \\ nil), to: Routes
 
   def thread_context_sections(
         sections_by_tab,
@@ -1068,249 +560,23 @@ defmodule JidoStudio.Live.AgentsLive.Support do
 
   def active_strategy_thread_id(_), do: nil
 
-  def thread_events_for_display(events, thread_id, query, limit) when is_list(events) do
-    filtered =
-      if is_binary(thread_id) and thread_id != "" do
-        Enum.filter(events, fn event ->
-          case event_thread_id(event) do
-            nil -> false
-            value -> value == thread_id
-          end
-        end)
-      else
-        []
-      end
-
-    selected =
-      cond do
-        filtered != [] -> filtered
-        true -> events
-      end
-
-    selected
-    |> filter_events_by_query(query)
-    |> Enum.take(normalize_thread_event_limit(limit))
-  end
-
-  def thread_events_for_display(_, _, _, _), do: []
-
-  def instance_events_for_display(events, query, limit) when is_list(events) do
-    events
-    |> filter_events_by_query(query)
-    |> Enum.take(normalize_thread_event_limit(limit))
-  end
-
-  def instance_events_for_display(_, _, _), do: []
-
-  def build_instance_event_stream(events, limit) when is_list(events) do
-    events
-    |> Enum.reduce(%{}, fn event, acc ->
-      key = event_merge_key(event)
-
-      Map.update(acc, key, event_stream_row(key, event), fn existing ->
-        merge_event_stream_rows(existing, event)
-      end)
-    end)
-    |> Map.values()
-    |> Enum.sort_by(&event_stream_sort_key/1, :desc)
-    |> Enum.take(normalize_thread_event_limit(limit))
-  end
-
-  def build_instance_event_stream(_, _), do: []
-
-  def event_stream_row(key, event) do
-    %{
-      id: key,
-      timestamp_ms: event[:timestamp_ms],
-      event_name: event[:event_name],
-      type: event[:type],
-      source: event[:source],
-      metadata: event[:metadata] || %{},
-      measurements: event[:measurements] || %{},
-      trace_id: event[:trace_id],
-      span_id: event[:span_id],
-      call_id: event[:call_id] || event_metadata_value(event, :call_id),
-      task_id: event[:task_id] || event_metadata_value(event, :task_id),
-      chunk_count: 1,
-      raw: [event]
-    }
-  end
-
-  def merge_event_stream_rows(existing, event) do
-    latest =
-      cond do
-        is_integer(event[:timestamp_ms]) and is_integer(existing[:timestamp_ms]) ->
-          if event[:timestamp_ms] >= existing[:timestamp_ms],
-            do: event,
-            else: hd(existing[:raw] || [event])
-
-        is_integer(event[:timestamp_ms]) ->
-          event
-
-        true ->
-          hd(existing[:raw] || [event])
-      end
-
-    %{
-      existing
-      | timestamp_ms: latest[:timestamp_ms] || existing[:timestamp_ms],
-        event_name: latest[:event_name] || existing[:event_name],
-        type: latest[:type] || existing[:type],
-        source: latest[:source] || existing[:source],
-        metadata: latest[:metadata] || existing[:metadata],
-        measurements: latest[:measurements] || existing[:measurements],
-        trace_id: latest[:trace_id] || existing[:trace_id],
-        span_id: latest[:span_id] || existing[:span_id],
-        call_id: latest[:call_id] || existing[:call_id],
-        task_id: latest[:task_id] || existing[:task_id],
-        chunk_count: normalize_non_negative_int(existing[:chunk_count], 1) + 1,
-        raw: [event | List.wrap(existing[:raw])]
-    }
-  end
-
-  def event_stream_sort_key(row) do
-    {row[:timestamp_ms] || 0, to_string(row[:id] || "")}
-  end
-
-  def event_merge_key(event) when is_map(event) do
-    call_id = normalize_scope_value(event[:call_id] || event_metadata_value(event, :call_id))
-    span_id = normalize_scope_value(event[:span_id])
-    event_name = to_string(event[:event_name] || event[:type] || "event")
-    chunk_key = normalize_scope_value(event_metadata_value(event, :chunk_id))
-
-    cond do
-      is_binary(call_id) and is_binary(chunk_key) ->
-        "call:" <> call_id <> ":" <> event_name <> ":" <> chunk_key
-
-      is_binary(call_id) ->
-        "call:" <> call_id <> ":" <> event_name
-
-      is_binary(chunk_key) ->
-        "chunk:" <> chunk_key <> ":" <> event_name
-
-      is_binary(span_id) ->
-        "span:" <> span_id <> ":" <> event_name
-
-      true ->
-        "event:" <>
-          Integer.to_string(event[:timestamp_ms] || 0) <>
-          ":" <> Integer.to_string(:erlang.phash2(event))
-    end
-  end
-
-  def event_merge_key(_), do: "event:unknown"
-
-  def sanitize_expanded_event_ids(expanded_event_ids, event_stream) do
-    valid_ids =
-      event_stream
-      |> List.wrap()
-      |> Enum.map(&to_string(&1[:id]))
-      |> MapSet.new()
-
-    expanded_event_ids
-    |> case do
-      %MapSet{} = existing -> existing
-      _ -> MapSet.new()
-    end
-    |> Enum.reduce(MapSet.new(), fn id, acc ->
-      id = to_string(id)
-      if MapSet.member?(valid_ids, id), do: MapSet.put(acc, id), else: acc
-    end)
-  end
-
-  def runtime_todos_for_display(runtime_status, tasks) do
-    todos = MessageSnapshot.todos(runtime_status)
-
-    if todos == [] do
-      fallback_todos_from_tasks(tasks)
-    else
-      todos
-    end
-  end
-
-  def fallback_todos_from_tasks(tasks) when is_list(tasks) do
-    tasks
-    |> Enum.take(50)
-    |> Enum.with_index(1)
-    |> Enum.map(fn {task, idx} ->
-      %{
-        id: normalize_scope_value(task[:task_id]) || Integer.to_string(idx),
-        content:
-          "Task " <>
-            to_string(task[:task_id] || "unknown") <>
-            " (" <> to_string(task[:task_status] || task[:status] || "running") <> ")",
-        status: todo_status_from_task(task[:task_status] || task[:status]),
-        active_form: normalize_scope_value(task[:trace_id])
-      }
-    end)
-  end
-
-  def fallback_todos_from_tasks(_), do: []
-
-  def todo_status_from_task(status) when status in ["ok", :ok, "completed", :completed],
-    do: :completed
-
-  def todo_status_from_task(status) when status in ["error", :error], do: :error
-  def todo_status_from_task(status) when status in ["running", :running], do: :in_progress
-  def todo_status_from_task(_), do: :pending
-
-  def todo_badge_variant(:completed), do: :success
-  def todo_badge_variant(:in_progress), do: :info
-  def todo_badge_variant(:error), do: :error
-  def todo_badge_variant(_), do: :default
-
-  def normalize_non_negative_int(value, _default) when is_integer(value) and value >= 0,
-    do: value
-
-  def normalize_non_negative_int(_value, default), do: default
-
-  def event_thread_id(event) when is_map(event) do
-    metadata = Map.get(event, :metadata, %{})
-    Map.get(metadata, :thread_id) || Map.get(metadata, "thread_id")
-  end
-
-  def event_thread_id(_), do: nil
-
-  def filter_events_by_query(events, query) when is_list(events) do
-    case normalize_optional_query(query) do
-      nil ->
-        events
-
-      normalized ->
-        Enum.filter(events, fn event ->
-          haystack =
-            [
-              format_event_name(event),
-              inspect(event[:metadata] || %{}, limit: 5),
-              to_string(event[:type] || ""),
-              to_string(event[:source] || ""),
-              to_string(event[:trace_id] || ""),
-              to_string(event[:span_id] || "")
-            ]
-            |> Enum.join(" ")
-            |> String.downcase()
-
-          String.contains?(haystack, normalized)
-        end)
-    end
-  end
-
-  def filter_events_by_query(events, _), do: events
-
-  def normalize_optional_query(query) when is_binary(query) do
-    query
-    |> String.trim()
-    |> String.downcase()
-    |> case do
-      "" -> nil
-      value -> value
-    end
-  end
-
-  def normalize_optional_query(_), do: nil
-
-  def normalize_thread_event_limit(value) when is_integer(value) and value > 0, do: value
-  def normalize_thread_event_limit(_), do: 200
+  defdelegate thread_events_for_display(events, thread_id, query, limit), to: EventHelpers
+  defdelegate instance_events_for_display(events, query, limit), to: EventHelpers
+  defdelegate build_instance_event_stream(events, limit), to: EventHelpers
+  defdelegate event_stream_row(key, event), to: EventHelpers
+  defdelegate merge_event_stream_rows(existing, event), to: EventHelpers
+  defdelegate event_stream_sort_key(row), to: EventHelpers
+  defdelegate event_merge_key(event), to: EventHelpers
+  defdelegate sanitize_expanded_event_ids(expanded_event_ids, event_stream), to: EventHelpers
+  defdelegate runtime_todos_for_display(runtime_status, tasks), to: EventHelpers
+  defdelegate fallback_todos_from_tasks(tasks), to: EventHelpers
+  defdelegate todo_status_from_task(status), to: EventHelpers
+  defdelegate todo_badge_variant(status), to: EventHelpers
+  defdelegate normalize_non_negative_int(value, default), to: EventHelpers
+  defdelegate event_thread_id(event), to: EventHelpers
+  defdelegate filter_events_by_query(events, query), to: EventHelpers
+  defdelegate normalize_optional_query(query), to: EventHelpers
+  defdelegate normalize_thread_event_limit(limit), to: EventHelpers
 
   def ordered_detail_tabs(tabs) when is_list(tabs) do
     desired = [:overview, :reasoning, :context, :weather, :model, :memory, :tracing]

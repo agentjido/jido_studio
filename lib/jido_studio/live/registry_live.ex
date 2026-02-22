@@ -2,7 +2,7 @@ defmodule JidoStudio.RegistryLive do
   @moduledoc false
   use Phoenix.LiveView
 
-  alias JidoStudio.Cluster.Scope
+  alias JidoStudio.ScopeQuery
 
   @impl true
   def mount(_params, _session, socket) do
@@ -28,7 +28,11 @@ defmodule JidoStudio.RegistryLive do
         base <> "?" <> URI.encode_query(query)
       end
 
-    {:noreply, push_navigate(socket, to: Scope.with_scope_query(target, query["node"]))}
+    {:noreply,
+     push_navigate(
+       socket,
+       to: ScopeQuery.with_scope_query(target, query["runtime"], query["node"])
+     )}
   end
 
   @impl true

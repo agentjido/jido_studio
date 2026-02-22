@@ -215,7 +215,10 @@ defmodule JidoStudio.Agents.SignalCatalog do
     preferred = if(runtime_preferred, do: incoming, else: existing)
 
     preferred
-    |> Map.put(:origins, (List.wrap(existing.origins) ++ List.wrap(incoming.origins)) |> Enum.uniq())
+    |> Map.put(
+      :origins,
+      (List.wrap(existing.origins) ++ List.wrap(incoming.origins)) |> Enum.uniq()
+    )
     |> Map.put(:route_available?, existing.route_available? || incoming.route_available?)
     |> Map.put(:last_seen_at, max_timestamp(existing.last_seen_at, incoming.last_seen_at))
     |> Map.put(:advanced?, existing.advanced? || incoming.advanced?)
@@ -309,7 +312,9 @@ defmodule JidoStudio.Agents.SignalCatalog do
   defp extract_pid(_), do: nil
 
   defp safe_strategy_opts(agent_module) when is_atom(agent_module) do
-    if function_exported?(agent_module, :strategy_opts, 0), do: agent_module.strategy_opts(), else: []
+    if function_exported?(agent_module, :strategy_opts, 0),
+      do: agent_module.strategy_opts(),
+      else: []
   rescue
     _ -> []
   end

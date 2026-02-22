@@ -3,6 +3,7 @@ defmodule JidoStudio.Layouts do
   use Phoenix.Component
 
   alias JidoStudio.Cluster.Scope
+  alias JidoStudio.ScopeQuery
 
   import Phoenix.HTML
 
@@ -22,6 +23,14 @@ defmodule JidoStudio.Layouts do
       |> assign(:cluster_node_param, assigns[:cluster_node_param] || "all")
       |> assign(:cluster_nodes, assigns[:cluster_nodes] || Scope.dropdown_options())
       |> assign(:cluster_scope_warning, assigns[:cluster_scope_warning])
+      |> assign(:runtime_options, assigns[:runtime_options] || [])
+      |> assign(:runtime_key, assigns[:runtime_key])
+      |> assign(:runtime_scope_warning, assigns[:runtime_scope_warning])
+      |> assign(:runtime_selector_visible?, runtime_selector_visible?(assigns[:runtime_options]))
+      |> assign(
+        :runtime_label,
+        runtime_label(assigns[:runtime_options], assigns[:runtime_key], assigns[:jido_instance])
+      )
       |> assign(
         :cluster_status_label,
         cluster_status_label(assigns[:cluster_nodes], assigns[:cluster_scope_warning])
@@ -62,6 +71,7 @@ defmodule JidoStudio.Layouts do
             }
 
             var sidebarState = safeGet('jido-studio-sidebar-state', 'expanded');
+            var advancedScopeState = safeGet('jido-studio-advanced-scope-state', 'collapsed');
             var theme = safeGet('jido-studio-theme', 'dark');
 
             function normalizePath(path) {
@@ -98,7 +108,10 @@ defmodule JidoStudio.Layouts do
 
             function applyChromeState() {
               var wrapper = document.getElementById('studio-wrapper');
-              if (wrapper) wrapper.setAttribute('data-sidebar-state', sidebarState);
+              if (wrapper) {
+                wrapper.setAttribute('data-sidebar-state', sidebarState);
+                wrapper.setAttribute('data-advanced-scope-state', advancedScopeState);
+              }
               document.documentElement.setAttribute('data-theme', theme);
               applyMainMode();
             }
@@ -132,6 +145,30 @@ defmodule JidoStudio.Layouts do
                 var url = new URL(window.location.href);
                 url.searchParams.set('node', nodeValue || 'all');
                 window.location.assign(url.toString());
+              },
+              setRuntime: function(runtimeKey) {
+                var url = new URL(window.location.href);
+                if (runtimeKey && runtimeKey !== '') {
+                  url.searchParams.set('runtime', runtimeKey);
+                } else {
+                  url.searchParams.delete('runtime');
+                }
+                window.dispatchEvent(new CustomEvent('jido-studio:runtime-selection-changed', {
+                  detail: { runtime: runtimeKey || null }
+                }));
+                window.location.assign(url.toString());
+              },
+              toggleAdvancedScope: function() {
+                var wrapper = document.getElementById('studio-wrapper');
+                if (!wrapper) return;
+                var current = wrapper.getAttribute('data-advanced-scope-state');
+                var next = current === 'expanded' ? 'collapsed' : 'expanded';
+                advancedScopeState = next;
+                wrapper.setAttribute('data-advanced-scope-state', next);
+                safeSet('jido-studio-advanced-scope-state', next);
+                if (next === 'expanded') {
+                  window.dispatchEvent(new CustomEvent('jido-studio:advanced-scope-opened'));
+                }
               }
             };
           })();
@@ -140,6 +177,7 @@ defmodule JidoStudio.Layouts do
           id="studio-wrapper"
           class="group flex h-[100dvh] max-h-[100dvh] overflow-hidden"
           data-sidebar-state="expanded"
+          data-advanced-scope-state="collapsed"
           data-prefix={@prefix}
         >
           <.sidebar
@@ -151,6 +189,11 @@ defmodule JidoStudio.Layouts do
             cluster_node_param={@cluster_node_param}
             cluster_status_label={@cluster_status_label}
             cluster_scope_warning={@cluster_scope_warning}
+            runtime_options={@runtime_options}
+            runtime_key={@runtime_key}
+            runtime_scope_warning={@runtime_scope_warning}
+            runtime_selector_visible?={@runtime_selector_visible?}
+            runtime_label={@runtime_label}
           />
           <main id="studio-main" class={@main_class}>
             {@inner_content}
@@ -194,42 +237,88 @@ defmodule JidoStudio.Layouts do
         </button>
       </div>
 
-      <div
-        :if={@cluster_enabled?}
-        class="px-3 py-2 border-b border-js-sidebar-border group-data-[sidebar-state=collapsed]:hidden"
-      >
-        <label
-          for="studio-cluster-scope"
-          class="text-[11px] uppercase tracking-wider text-js-text-subtle"
-        >
-          Cluster Scope
+      <div class="px-3 py-2 border-b border-js-sidebar-border group-data-[sidebar-state=collapsed]:hidden">
+        <label class="text-[11px] uppercase tracking-wider text-js-text-subtle">
+          Scope
         </label>
-        <select
-          id="studio-cluster-scope"
-          onchange="window.jidoStudio.setClusterNode(this.value)"
-          class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1 text-xs text-js-text"
-        >
-          <option
-            :for={option <- @cluster_nodes}
-            value={option.value}
-            selected={option.value == @cluster_node_param}
-          >
-            {option.label}
-          </option>
-        </select>
 
-        <div class={[
-          "mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-[11px]",
-          if(@cluster_scope_warning,
-            do: "bg-js-warning/15 text-js-warning",
-            else: "bg-js-muted text-js-text-muted"
-          )
-        ]}>
-          {@cluster_status_label}
+        <div class="mt-1 rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5">
+          <div class="text-[10px] uppercase tracking-wide text-js-text-subtle">Runtime</div>
+          <div class="mt-0.5 text-xs text-js-text truncate">{@runtime_label || "Not configured"}</div>
         </div>
 
-        <p :if={@cluster_scope_warning} class="mt-1 text-[11px] leading-4 text-js-warning">
-          {@cluster_scope_warning}
+        <div :if={@runtime_selector_visible?} class="mt-2">
+          <label
+            for="studio-runtime-scope"
+            class="text-[10px] uppercase tracking-wide text-js-text-subtle"
+          >
+            Runtime Selector
+          </label>
+          <select
+            id="studio-runtime-scope"
+            onchange="window.jidoStudio.setRuntime(this.value)"
+            class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1 text-xs text-js-text"
+          >
+            <option
+              :for={option <- @runtime_options}
+              value={option.key}
+              selected={option.key == @runtime_key}
+            >
+              {option.label}
+            </option>
+          </select>
+        </div>
+
+        <button
+          :if={@cluster_enabled?}
+          type="button"
+          onclick="window.jidoStudio.toggleAdvancedScope()"
+          class="mt-2 inline-flex items-center gap-1 rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+        >
+          <Lucideicons.sliders_horizontal class="w-3.5 h-3.5" /> Advanced Scope
+        </button>
+
+        <div
+          :if={@cluster_enabled?}
+          class="hidden group-data-[advanced-scope-state=expanded]:block mt-2 space-y-2"
+        >
+          <label
+            for="studio-cluster-scope"
+            class="text-[10px] uppercase tracking-wide text-js-text-subtle"
+          >
+            Cluster Node
+          </label>
+          <select
+            id="studio-cluster-scope"
+            onchange="window.jidoStudio.setClusterNode(this.value)"
+            class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1 text-xs text-js-text"
+          >
+            <option
+              :for={option <- @cluster_nodes}
+              value={option.value}
+              selected={option.value == @cluster_node_param}
+            >
+              {option.label}
+            </option>
+          </select>
+
+          <div class={[
+            "inline-flex items-center rounded-full px-2 py-0.5 text-[11px]",
+            if(@cluster_scope_warning,
+              do: "bg-js-warning/15 text-js-warning",
+              else: "bg-js-muted text-js-text-muted"
+            )
+          ]}>
+            {@cluster_status_label}
+          </div>
+
+          <p :if={@cluster_scope_warning} class="text-[11px] leading-4 text-js-warning">
+            {@cluster_scope_warning}
+          </p>
+        </div>
+
+        <p :if={@runtime_scope_warning} class="mt-2 text-[11px] leading-4 text-js-warning">
+          {@runtime_scope_warning}
         </p>
       </div>
 
@@ -257,6 +346,7 @@ defmodule JidoStudio.Layouts do
               prefix={@prefix}
               icon={item.icon}
               cluster_node_param={@cluster_node_param}
+              runtime_key={@runtime_key}
             />
           </nav>
         </div>
@@ -306,7 +396,12 @@ defmodule JidoStudio.Layouts do
         current == full_path or String.starts_with?(current, full_path <> "/")
       end
 
-    href = Scope.with_scope_query(full_path, assigns.cluster_node_param || "all")
+    href =
+      ScopeQuery.with_scope_query(
+        full_path,
+        assigns.runtime_key,
+        assigns.cluster_node_param || "all"
+      )
 
     assigns = assign(assigns, :active, active)
     assigns = assign(assigns, :href, href)
@@ -458,6 +553,27 @@ defmodule JidoStudio.Layouts do
   end
 
   defp cluster_status_label(_, _), do: "Single Node"
+
+  defp runtime_selector_visible?(options) when is_list(options), do: length(options) > 1
+  defp runtime_selector_visible?(_), do: false
+
+  defp runtime_label(options, runtime_key, jido_instance)
+
+  defp runtime_label(options, runtime_key, _jido_instance) when is_list(options) do
+    Enum.find_value(options, fn
+      %{key: ^runtime_key, label: label} when is_binary(label) -> label
+      _ -> nil
+    end)
+  end
+
+  defp runtime_label(_, _, module) when is_atom(module) do
+    module
+    |> Atom.to_string()
+    |> String.split(".")
+    |> List.last()
+  end
+
+  defp runtime_label(_, _, _), do: nil
 
   defp jido_version do
     case Application.spec(:jido, :vsn) do

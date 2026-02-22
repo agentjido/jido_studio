@@ -7,8 +7,11 @@ defmodule JidoStudio.HomeLive do
   alias JidoStudio.AgentRegistry
   alias JidoStudio.Cluster.RPC
   alias JidoStudio.Cluster.Scope
+  alias JidoStudio.LiveOps
   alias JidoStudio.Naming
   alias JidoStudio.Observability.Incidents
+  alias JidoStudio.ScopeQuery
+  alias JidoStudio.Threads.Storage, as: ThreadsStorage
   alias JidoStudio.Tracing
 
   @refresh_ms 4_000
@@ -30,6 +33,7 @@ defmodule JidoStudio.HomeLive do
       |> assign(:example_running?, false)
       |> assign(:example_provider_name, nil)
       |> assign(:example_keys_missing?, false)
+      |> assign(:setup_assistant, %{checks: [], complete?: false})
       |> assign(:home_warning, nil)
 
     {:ok, socket}
@@ -48,99 +52,144 @@ defmodule JidoStudio.HomeLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="p-6 space-y-4">
-      <.page_header title="Home" subtitle="Your agent fleet at a glance">
+    <div class="container mx-auto p-6 space-y-4">
+      <.page_header title="Home" subtitle="Operational overview with fast paths to action">
         <:actions>
-          <.badge variant={:info}>scope:{@cluster_node_param || "all"}</.badge>
+          <.badge variant={:default}>
+            runtime:{runtime_scope_label(@runtime_key, @jido_instance)}
+          </.badge>
+          <.badge variant={:info}>node:{@cluster_node_param || "all"}</.badge>
         </:actions>
       </.page_header>
 
-      <.card class="py-3">
-        <p class="text-xs text-js-text-muted">
-          What this page is for: quickly answer "is everything healthy?" and jump into Agents, Activity, or Diagnostics when attention is needed.
-        </p>
-        <p :if={@home_warning} class="mt-2 text-xs text-js-warning">{@home_warning}</p>
-      </.card>
-
-      <div data-js-home-example class="space-y-2">
-        <.card
-          data-js-home-example-card
-          class="border-js-info/35 bg-gradient-to-r from-js-info/12 via-js-card to-js-card p-4"
-        >
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <p class="text-[11px] uppercase tracking-wider text-js-info">Example</p>
-              <h2 class="mt-1 text-base font-semibold text-js-text">Calculator Agent</h2>
-              <p class="mt-1 text-xs text-js-text-muted max-w-2xl">
-                Fast onboarding: run one calculator example to learn the Studio flow before moving to advanced diagnostics.
-              </p>
+      <div
+        data-js-home-setup
+        data-js-home-setup-complete={to_string(@setup_assistant.complete?)}
+        class="space-y-3"
+      >
+        <div data-js-home-setup-grid class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <.card>
+            <div class="flex items-center justify-between">
+              <h2 class="text-sm font-semibold text-js-text">Attention Needed</h2>
+              <.badge :if={@attention_items != []} variant={:warning}>
+                {length(@attention_items)}
+              </.badge>
             </div>
 
-            <button
-              type="button"
-              data-js-home-example-hide
-              class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-            >
-              Hide
-            </button>
-          </div>
+            <div :if={@attention_items == []} class="mt-4">
+              <.empty_state
+                title="No active alerts"
+                description="No incident spikes or recent error-heavy traces were detected."
+              />
+            </div>
 
-          <div class="mt-3 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
-            <div class="rounded-md border border-js-border/70 bg-js-bg-elevated/40 p-3">
-              <p class="text-[11px] uppercase tracking-wide text-js-text-subtle">Example Status</p>
-              <div class="mt-2 flex items-center gap-2">
-                <.badge variant={if @example_running?, do: :success, else: :default}>
-                  {if @example_running?, do: "Running", else: "Available"}
-                </.badge>
-                <.badge :if={@example_keys_missing?} variant={:warning}>
-                  Missing {@example_provider_name || "LLM"} key
-                </.badge>
-                <span class="text-xs text-js-text">{display_agent_name(@example_agent)}</span>
+            <div :if={@attention_items != []} class="mt-3 space-y-2">
+              <div
+                :for={item <- @attention_items}
+                class="rounded-md border border-js-border bg-js-bg-elevated px-3 py-2"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-xs text-js-text font-medium">{item.title}</div>
+                  <.link
+                    :if={item[:path]}
+                    navigate={item.path}
+                    class="text-[11px] text-js-info hover:text-js-text"
+                  >
+                    Open
+                  </.link>
+                </div>
+                <p class="mt-1 text-xs text-js-text-muted">{item.description}</p>
               </div>
-              <p class="mt-2 text-xs text-js-text-muted">
-                {example_status_hint(@example_running?, @example_keys_missing?)}
-              </p>
             </div>
 
-            <div class="rounded-md border border-js-border/70 bg-js-bg-elevated/40 p-3">
-              <p class="text-[11px] uppercase tracking-wide text-js-text-subtle">Try These Prompts</p>
-              <p class="mt-2 text-xs text-js-text-muted font-mono">What is 25 * 4 + 50?</p>
-              <p class="mt-1 text-xs text-js-text-muted font-mono">
-                Calculate ((18 / 3) + 7) * 9
-              </p>
-              <p class="mt-1 text-xs text-js-text-muted font-mono">
-                What is a 20% tip on 42.50?
-              </p>
+            <div class="mt-4 flex flex-wrap gap-2">
+              <.link
+                navigate={page_path(@prefix, "/agents", @runtime_key, @cluster_node_param)}
+                class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+              >
+                Open Agents
+              </.link>
+              <.link
+                navigate={page_path(@prefix, "/activity", @runtime_key, @cluster_node_param)}
+                class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+              >
+                Open Activity
+              </.link>
+              <.link
+                navigate={page_path(@prefix, "/diagnostics", @runtime_key, @cluster_node_param)}
+                class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+              >
+                Open Diagnostics
+              </.link>
             </div>
-          </div>
+          </.card>
 
-          <div class="mt-3 flex flex-wrap items-center gap-2">
-            <.link
-              navigate={@example_launch_path || page_path(@prefix, "/agents", @cluster_node_param)}
-              class="inline-flex items-center rounded-md bg-js-primary px-3 py-1.5 text-xs font-medium text-js-primary-foreground hover:brightness-110"
-            >
-              Open Calculator Example
-            </.link>
-            <.link
-              navigate={page_path(@prefix, "/agents", @cluster_node_param)}
-              class="inline-flex items-center rounded-md border border-js-border px-3 py-1.5 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-            >
-              Browse All Agents
-            </.link>
-          </div>
-        </.card>
+          <.card data-js-home-setup-card class="h-full">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <h2 class="text-sm font-semibold text-js-text">Setup Assistant</h2>
+                <p class="mt-1 text-xs text-js-text-muted">
+                  Validate runtime, persistence, realtime flow, and a smoke-check path.
+                </p>
+              </div>
+              <div class="flex items-center gap-2">
+                <.badge variant={if(@setup_assistant.complete?, do: :success, else: :warning)}>
+                  {if(@setup_assistant.complete?, do: "Ready", else: "Needs Setup")}
+                </.badge>
+                <button
+                  :if={@setup_assistant.complete?}
+                  type="button"
+                  data-js-home-setup-hide
+                  class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+                >
+                  Hide
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-3 space-y-2">
+              <div
+                :for={check <- @setup_assistant.checks}
+                class="rounded-md border border-js-border bg-js-bg-elevated px-3 py-2"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-xs text-js-text font-medium">{check.label}</div>
+                  <.badge variant={setup_badge_variant(check.status)}>
+                    {setup_status_label(check.status)}
+                  </.badge>
+                </div>
+                <p class="mt-1 text-xs text-js-text-muted">{check.detail}</p>
+                <.link
+                  :if={check[:action_path]}
+                  navigate={check.action_path}
+                  class="mt-2 inline-flex items-center rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text hover:bg-js-bg"
+                >
+                  {check[:action_label] || "Open"}
+                </.link>
+              </div>
+            </div>
+          </.card>
+        </div>
 
         <div
-          data-js-home-example-show
-          class="hidden rounded-md border border-dashed border-js-border px-3 py-2 text-xs text-js-text-muted flex items-center justify-between gap-2"
+          data-js-home-setup-show
+          class="hidden rounded-lg border border-js-border bg-js-card px-4 py-3 flex items-center justify-between gap-3"
         >
-          <span>Calculator example hidden.</span>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <h2 class="text-sm font-semibold text-js-text">Setup Assistant</h2>
+              <.badge variant={:success}>Ready</.badge>
+            </div>
+            <p class="mt-1 text-xs text-js-text-muted truncate">
+              Setup checklist is hidden. Re-open it whenever you need to review setup health.
+            </p>
+          </div>
           <button
             type="button"
-            data-js-home-example-show-btn
-            class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+            data-js-home-setup-show-btn
+            class="inline-flex items-center rounded-md border border-js-border px-2.5 py-1 text-[11px] text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated whitespace-nowrap"
           >
-            Show Example
+            Show Setup
           </button>
         </div>
       </div>
@@ -152,54 +201,7 @@ defmodule JidoStudio.HomeLive do
         <.stat_card label="Cluster Nodes" value={to_string(@summary.node_count || 1)} />
       </div>
 
-      <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4">
-        <.card>
-          <div class="flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-js-text">Attention Needed</h2>
-            <.badge :if={@attention_items != []} variant={:warning}>
-              {length(@attention_items)}
-            </.badge>
-          </div>
-
-          <div :if={@attention_items == []} class="mt-4">
-            <.empty_state
-              title="No active alerts"
-              description="No incident spikes or recent error-heavy traces were detected."
-            />
-          </div>
-
-          <div :if={@attention_items != []} class="mt-3 space-y-2">
-            <div
-              :for={item <- @attention_items}
-              class="rounded-md border border-js-border bg-js-bg-elevated px-3 py-2"
-            >
-              <div class="text-xs text-js-text font-medium">{item.title}</div>
-              <p class="mt-1 text-xs text-js-text-muted">{item.description}</p>
-            </div>
-          </div>
-
-          <div class="mt-4 flex flex-wrap gap-2">
-            <.link
-              navigate={page_path(@prefix, "/agents", @cluster_node_param)}
-              class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-            >
-              Open Agents
-            </.link>
-            <.link
-              navigate={page_path(@prefix, "/activity", @cluster_node_param)}
-              class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-            >
-              Open Activity
-            </.link>
-            <.link
-              navigate={page_path(@prefix, "/diagnostics", @cluster_node_param)}
-              class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-            >
-              Open Diagnostics
-            </.link>
-          </div>
-        </.card>
-
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
         <.card>
           <div class="flex items-center justify-between">
             <h2 class="text-sm font-semibold text-js-text">Top Agents</h2>
@@ -214,7 +216,7 @@ defmodule JidoStudio.HomeLive do
           <div :if={@top_agents != []} class="mt-3 space-y-2">
             <.link
               :for={agent <- @top_agents}
-              navigate={agent_launch_path(@prefix, agent, @cluster_node_param)}
+              navigate={agent_launch_path(@prefix, agent, @runtime_key, @cluster_node_param)}
               class="group flex items-center justify-between rounded-md border border-js-border bg-js-bg-elevated px-3 py-2 hover:border-js-primary/50 hover:bg-js-bg-elevated/80 transition-colors"
             >
               <div class="min-w-0">
@@ -232,28 +234,155 @@ defmodule JidoStudio.HomeLive do
             </.link>
           </div>
         </.card>
+
+        <.card>
+          <h2 class="text-sm font-semibold text-js-text">Recent Activity</h2>
+
+          <div :if={@recent_activity == []} class="mt-4">
+            <.empty_state
+              title="No recent trace activity"
+              description="Trace data appears here once agents execute actions or workflows."
+            />
+          </div>
+
+          <div :if={@recent_activity != []} class="mt-3 divide-y divide-js-border">
+            <div :for={item <- @recent_activity} class="py-2 flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-xs text-js-text truncate">{item.title}</div>
+                <div class="text-[11px] text-js-text-subtle font-mono truncate">
+                  {item.subtitle}
+                </div>
+              </div>
+              <div class="text-[11px] text-js-text-subtle font-mono whitespace-nowrap">
+                {item.when}
+              </div>
+            </div>
+          </div>
+        </.card>
       </div>
 
-      <.card>
-        <h2 class="text-sm font-semibold text-js-text">Recent Activity</h2>
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+        <div data-js-home-example class="space-y-2">
+          <.card
+            data-js-home-example-card
+            class="border-js-info/35 bg-gradient-to-r from-js-info/12 via-js-card to-js-card p-4"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="text-[11px] uppercase tracking-wider text-js-info">Example</p>
+                <h2 class="mt-1 text-base font-semibold text-js-text">Calculator Agent</h2>
+                <p class="mt-1 text-xs text-js-text-muted max-w-2xl">
+                  Run one calculator example to learn the Studio flow before moving to deeper diagnostics.
+                </p>
+              </div>
 
-        <div :if={@recent_activity == []} class="mt-4">
-          <.empty_state
-            title="No recent trace activity"
-            description="Trace data appears here once agents execute actions or workflows."
-          />
-        </div>
-
-        <div :if={@recent_activity != []} class="mt-3 divide-y divide-js-border">
-          <div :for={item <- @recent_activity} class="py-2 flex items-center justify-between gap-3">
-            <div class="min-w-0">
-              <div class="text-xs text-js-text truncate">{item.title}</div>
-              <div class="text-[11px] text-js-text-subtle font-mono truncate">{item.subtitle}</div>
+              <button
+                type="button"
+                data-js-home-example-hide
+                class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+              >
+                Hide
+              </button>
             </div>
-            <div class="text-[11px] text-js-text-subtle font-mono whitespace-nowrap">{item.when}</div>
+
+            <div class="mt-3 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+              <div class="rounded-md border border-js-border/70 bg-js-bg-elevated/40 p-3">
+                <p class="text-[11px] uppercase tracking-wide text-js-text-subtle">Example Status</p>
+                <div class="mt-2 flex items-center gap-2">
+                  <.badge variant={if @example_running?, do: :success, else: :default}>
+                    {if @example_running?, do: "Running", else: "Available"}
+                  </.badge>
+                  <.badge :if={@example_keys_missing?} variant={:warning}>
+                    Missing {@example_provider_name || "LLM"} key
+                  </.badge>
+                  <span class="text-xs text-js-text">{display_agent_name(@example_agent)}</span>
+                </div>
+                <p class="mt-2 text-xs text-js-text-muted">
+                  {example_status_hint(@example_running?, @example_keys_missing?)}
+                </p>
+              </div>
+
+              <div class="rounded-md border border-js-border/70 bg-js-bg-elevated/40 p-3">
+                <p class="text-[11px] uppercase tracking-wide text-js-text-subtle">
+                  Try These Prompts
+                </p>
+                <p class="mt-2 text-xs text-js-text-muted font-mono">What is 25 * 4 + 50?</p>
+                <p class="mt-1 text-xs text-js-text-muted font-mono">
+                  Calculate ((18 / 3) + 7) * 9
+                </p>
+                <p class="mt-1 text-xs text-js-text-muted font-mono">
+                  What is a 20% tip on 42.50?
+                </p>
+              </div>
+            </div>
+
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <.link
+                navigate={
+                  @example_launch_path ||
+                    page_path(@prefix, "/agents", @runtime_key, @cluster_node_param)
+                }
+                class="inline-flex items-center rounded-md bg-js-primary px-3 py-1.5 text-xs font-medium text-js-primary-foreground hover:brightness-110"
+              >
+                Open Calculator Example
+              </.link>
+              <.link
+                navigate={page_path(@prefix, "/agents", @runtime_key, @cluster_node_param)}
+                class="inline-flex items-center rounded-md border border-js-border px-3 py-1.5 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+              >
+                Browse All Agents
+              </.link>
+            </div>
+          </.card>
+
+          <div
+            data-js-home-example-show
+            class="hidden rounded-md border border-dashed border-js-border px-3 py-2 text-xs text-js-text-muted flex items-center justify-between gap-2"
+          >
+            <span>Calculator example hidden.</span>
+            <button
+              type="button"
+              data-js-home-example-show-btn
+              class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+            >
+              Show Example
+            </button>
           </div>
         </div>
-      </.card>
+
+        <.card>
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold text-js-text">Recent Failures</h2>
+            <.badge :if={@recent_failures != []} variant={:error}>
+              {length(@recent_failures)}
+            </.badge>
+          </div>
+
+          <div :if={@recent_failures == []} class="mt-4">
+            <.empty_state
+              title="No recent failures"
+              description="Failures will appear here when incidents are indexed in the selected scope."
+            />
+          </div>
+
+          <div :if={@recent_failures != []} class="mt-3 divide-y divide-js-border">
+            <div
+              :for={incident <- @recent_failures}
+              class="py-2 flex items-start justify-between gap-3"
+            >
+              <div class="min-w-0">
+                <div class="text-xs text-js-text truncate">{failure_title(incident)}</div>
+                <div class="text-[11px] text-js-text-subtle font-mono truncate">
+                  {failure_subtitle(incident)}
+                </div>
+              </div>
+              <div class="text-[11px] text-js-text-subtle font-mono whitespace-nowrap">
+                {format_timestamp(incident[:last_event_at] || incident[:started_at])}
+              </div>
+            </div>
+          </div>
+        </.card>
+      </div>
     </div>
     """
   end
@@ -261,6 +390,7 @@ defmodule JidoStudio.HomeLive do
   defp refresh_home(socket) do
     scope = socket.assigns.cluster_scope
     jido_instance = socket.assigns[:jido_instance]
+    runtime_key = socket.assigns[:runtime_key]
 
     agents = AgentRegistry.list_agents(jido_instance: jido_instance, scope: scope)
     incidents = cluster_incidents(scope)
@@ -287,11 +417,25 @@ defmodule JidoStudio.HomeLive do
       []
       |> maybe_add_attention(summary.active_incidents > 0, %{
         title: "#{summary.active_incidents} active incidents",
-        description: "Open Activity or Diagnostics to inspect current failures and timelines."
+        description: "Open Activity or Diagnostics to inspect current failures and timelines.",
+        path:
+          page_path(
+            socket.assigns.prefix,
+            "/activity",
+            runtime_key,
+            socket.assigns.cluster_node_param
+          )
       })
       |> maybe_add_attention(Enum.any?(traces, &(&1[:status] == "error")), %{
         title: "Recent error traces detected",
-        description: "A trace ended with errors in the current scope within the recent window."
+        description: "A trace ended with errors in the current scope within the recent window.",
+        path:
+          page_path(
+            socket.assigns.prefix,
+            "/diagnostics",
+            runtime_key,
+            socket.assigns.cluster_node_param
+          )
       })
 
     recent_failures =
@@ -311,19 +455,35 @@ defmodule JidoStudio.HomeLive do
         }
       end)
 
+    example_launch_path =
+      example_launch_path(
+        socket.assigns.prefix,
+        example_agent,
+        runtime_key,
+        socket.assigns.cluster_node_param
+      )
+
+    setup_assistant =
+      build_setup_assistant(
+        socket,
+        summary,
+        example_agent,
+        example_running?(example_agent),
+        example_keys_missing?,
+        example_launch_path
+      )
+
     warning = if scope != :all and node_count(scope) == 1, do: nil, else: nil
 
     socket
     |> assign(:summary, summary)
     |> assign(:top_agents, top_agents)
     |> assign(:example_agent, example_agent)
-    |> assign(
-      :example_launch_path,
-      example_launch_path(socket.assigns.prefix, example_agent, socket.assigns.cluster_node_param)
-    )
+    |> assign(:example_launch_path, example_launch_path)
     |> assign(:example_running?, example_running?(example_agent))
     |> assign(:example_provider_name, provider_display_name(example_provider))
     |> assign(:example_keys_missing?, example_keys_missing?)
+    |> assign(:setup_assistant, setup_assistant)
     |> assign(:attention_items, attention_items)
     |> assign(:recent_activity, recent_activity)
     |> assign(:recent_failures, recent_failures)
@@ -382,6 +542,27 @@ defmodule JidoStudio.HomeLive do
   defp maybe_add_attention(items, true, item), do: [item | items]
   defp maybe_add_attention(items, false, _item), do: items
 
+  defp failure_title(incident) when is_map(incident) do
+    incident[:latest_action] || incident[:latest_signal_type] || incident[:incident_id] ||
+      "incident"
+  end
+
+  defp failure_title(_incident), do: "incident"
+
+  defp failure_subtitle(incident) when is_map(incident) do
+    [incident[:latest_agent_id], incident[:status]]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" / ")
+    |> case do
+      "" -> "failure"
+      value -> value
+    end
+  end
+
+  defp failure_subtitle(_incident), do: "failure"
+
   defp format_timestamp(ts) when is_integer(ts) and ts > 0 do
     ts
     |> DateTime.from_unix!(:millisecond)
@@ -390,25 +571,27 @@ defmodule JidoStudio.HomeLive do
 
   defp format_timestamp(_), do: "-"
 
-  defp page_path(prefix, suffix, node_param) do
-    Scope.with_scope_query(prefix <> suffix, node_param)
+  defp page_path(prefix, suffix, runtime_key, node_param) do
+    ScopeQuery.with_scope_query(prefix <> suffix, runtime_key, node_param)
   end
 
-  defp agent_launch_path(prefix, %{slug: slug} = agent, node_param) when is_binary(slug) do
+  defp agent_launch_path(prefix, %{slug: slug} = agent, runtime_key, node_param)
+       when is_binary(slug) do
     case first_running_instance_id(Map.get(agent, :running_instances, [])) do
       nil ->
-        Scope.with_scope_query("#{prefix}/agents/#{slug}", node_param)
+        ScopeQuery.with_scope_query("#{prefix}/agents/#{slug}", runtime_key, node_param)
 
       instance_id ->
-        Scope.with_scope_query(
+        ScopeQuery.with_scope_query(
           "#{prefix}/agents/#{slug}/#{URI.encode_www_form(instance_id)}",
+          runtime_key,
           node_param
         )
     end
   end
 
-  defp agent_launch_path(prefix, _agent, node_param) do
-    Scope.with_scope_query("#{prefix}/agents", node_param)
+  defp agent_launch_path(prefix, _agent, runtime_key, node_param) do
+    ScopeQuery.with_scope_query("#{prefix}/agents", runtime_key, node_param)
   end
 
   defp agent_launch_hint(agent) when is_map(agent) do
@@ -451,12 +634,12 @@ defmodule JidoStudio.HomeLive do
   defp module_name(module) when is_atom(module), do: Atom.to_string(module)
   defp module_name(_), do: nil
 
-  defp example_launch_path(prefix, nil, node_param) do
-    Scope.with_scope_query("#{prefix}/agents", node_param)
+  defp example_launch_path(prefix, nil, runtime_key, node_param) do
+    ScopeQuery.with_scope_query("#{prefix}/agents", runtime_key, node_param)
   end
 
-  defp example_launch_path(prefix, agent, node_param) do
-    agent_launch_path(prefix, agent, node_param)
+  defp example_launch_path(prefix, agent, runtime_key, node_param) do
+    agent_launch_path(prefix, agent, runtime_key, node_param)
   end
 
   defp example_running?(%{running_instances: instances}) when is_list(instances) do
@@ -574,4 +757,176 @@ defmodule JidoStudio.HomeLive do
   end
 
   defp first_running_instance_id(_), do: nil
+
+  defp build_setup_assistant(
+         socket,
+         summary,
+         example_agent,
+         example_running?,
+         example_keys_missing?,
+         example_launch_path
+       ) do
+    runtime_connected? = is_atom(socket.assigns[:jido_instance])
+    thread_persistence? = ThreadsStorage.persistence_enabled?()
+    thread_mode = ThreadsStorage.thread_storage_mode()
+    live_ops_enabled? = LiveOps.enabled?()
+    live_ops_presence? = LiveOps.presence_available?()
+    chat_key_present? = any_chat_key_present?()
+
+    runtime_check = %{
+      label: "Runtime Connected",
+      status: if(runtime_connected?, do: :ok, else: :warning),
+      detail:
+        if(runtime_connected?,
+          do: "Connected to #{inspect(socket.assigns[:jido_instance])}.",
+          else:
+            "No Jido runtime configured. Add `config :jido_studio, jido_instance: MyApp.Jido`."
+        ),
+      required?: true
+    }
+
+    persistence_check = %{
+      label: "Persistence",
+      status: if(thread_persistence?, do: :ok, else: :warning),
+      detail:
+        if(thread_persistence?,
+          do: "Thread persistence enabled (mode: #{thread_mode}).",
+          else: "Thread persistence is disabled; workspace state is ephemeral."
+        ),
+      required?: true,
+      action_path:
+        page_path(
+          socket.assigns.prefix,
+          "/settings",
+          socket.assigns.runtime_key,
+          socket.assigns.cluster_node_param
+        ),
+      action_label: "Open Settings"
+    }
+
+    realtime_check = %{
+      label: "Realtime Updates",
+      status:
+        cond do
+          live_ops_enabled? and live_ops_presence? -> :ok
+          live_ops_enabled? -> :info
+          true -> :warning
+        end,
+      detail:
+        cond do
+          live_ops_enabled? and live_ops_presence? ->
+            "Presence is available. Updates are event-driven."
+
+          live_ops_enabled? ->
+            "Presence is unavailable. Polling fallback is active."
+
+          true ->
+            "Live Ops is disabled; live updates are limited."
+        end,
+      required?: true,
+      action_path:
+        page_path(
+          socket.assigns.prefix,
+          "/settings",
+          socket.assigns.runtime_key,
+          socket.assigns.cluster_node_param
+        ),
+      action_label: "Open Settings"
+    }
+
+    chat_check = %{
+      label: "Chat Provider Key (Optional)",
+      status: if(chat_key_present?, do: :ok, else: :info),
+      detail:
+        if(chat_key_present?,
+          do: "An LLM provider key is configured.",
+          else: "No LLM key detected; non-chat Interact workflows still work."
+        ),
+      required?: false
+    }
+
+    smoke_status =
+      cond do
+        (summary[:running_instances] || 0) > 0 -> :ok
+        example_running? -> :ok
+        example_agent -> :info
+        true -> :warning
+      end
+
+    smoke_check = %{
+      label: "Smoke Check",
+      status: smoke_status,
+      detail:
+        cond do
+          (summary[:running_instances] || 0) > 0 ->
+            "A running instance is available for interaction."
+
+          example_running? ->
+            "Calculator example is running and ready."
+
+          example_agent ->
+            if(example_keys_missing?,
+              do: "Calculator example is discoverable. Add an LLM key for chat, or use Interact.",
+              else: "Calculator example is discoverable. Launch it to validate end-to-end flow."
+            )
+
+          true ->
+            "No demo agent detected in this scope."
+        end,
+      required?: true,
+      action_path:
+        example_launch_path ||
+          page_path(
+            socket.assigns.prefix,
+            "/agents",
+            socket.assigns.runtime_key,
+            socket.assigns.cluster_node_param
+          ),
+      action_label: "Run Example"
+    }
+
+    checks = [runtime_check, persistence_check, realtime_check, chat_check, smoke_check]
+
+    complete? =
+      Enum.all?(checks, fn check ->
+        if check[:required?] do
+          check[:status] in [:ok, :info]
+        else
+          true
+        end
+      end)
+
+    %{checks: checks, complete?: complete?}
+  end
+
+  defp any_chat_key_present? do
+    env_present?([
+      "ANTHROPIC_API_KEY",
+      "CLAUDE_API_KEY",
+      "OPENAI_API_KEY",
+      "GROQ_API_KEY"
+    ])
+  end
+
+  defp setup_badge_variant(:ok), do: :success
+  defp setup_badge_variant(:info), do: :default
+  defp setup_badge_variant(:warning), do: :warning
+  defp setup_badge_variant(_), do: :default
+
+  defp setup_status_label(:ok), do: "Ready"
+  defp setup_status_label(:info), do: "Optional"
+  defp setup_status_label(:warning), do: "Action"
+  defp setup_status_label(_), do: "Info"
+
+  defp runtime_scope_label(runtime_key, _jido_instance) when is_binary(runtime_key),
+    do: runtime_key
+
+  defp runtime_scope_label(_runtime_key, jido_instance) when is_atom(jido_instance) do
+    jido_instance
+    |> Atom.to_string()
+    |> String.split(".")
+    |> List.last()
+  end
+
+  defp runtime_scope_label(_, _), do: "default"
 end

@@ -1,6 +1,9 @@
 defmodule JidoStudio.Cluster.Scope do
   @moduledoc false
 
+  alias JidoStudio.RuntimeScope
+  alias JidoStudio.ScopeQuery
+
   @default_rpc_timeout_ms 3_000
   @process_node_key {__MODULE__, :node_param}
 
@@ -125,16 +128,9 @@ defmodule JidoStudio.Cluster.Scope do
   @spec with_scope_query(String.t(), scope() | String.t() | nil) :: String.t()
   def with_scope_query(path, scope_or_node_param) when is_binary(path) do
     node_param = query_param_for_scope(scope_or_node_param)
-    uri = URI.parse(path)
+    runtime_key = RuntimeScope.current_runtime_key()
 
-    params =
-      uri.query
-      |> decode_query()
-      |> Map.put("node", node_param)
-
-    uri
-    |> Map.put(:query, URI.encode_query(params))
-    |> URI.to_string()
+    ScopeQuery.with_scope_query(path, runtime_key, node_param)
   end
 
   @spec put_process_node_param(term()) :: :ok
@@ -206,14 +202,6 @@ defmodule JidoStudio.Cluster.Scope do
 
   defp find_node(node_name) do
     Enum.find(available_nodes(), Node.self(), &(Atom.to_string(&1) == node_name))
-  end
-
-  defp decode_query(nil), do: %{}
-
-  defp decode_query(query) when is_binary(query) do
-    URI.decode_query(query)
-  rescue
-    _ -> %{}
   end
 
   defp config do
