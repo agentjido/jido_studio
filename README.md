@@ -32,6 +32,24 @@ end
 
 Start your server and visit `/studio`.
 
+## Full Host Playground App
+
+For a full Phoenix host-app setup (router/session/endpoint parity), use:
+
+```bash
+cd dev/studio_playground
+mix deps.get
+mix phx.server
+```
+
+Then open `http://localhost:4702/studio`.
+
+Notes:
+
+- Host app depends on this package via local path (`{:jido_studio, path: "../.."}`)
+- A local Jido instance (`StudioPlayground.Jido`) is started in supervision
+- Demo agents are auto-seeded at boot for immediate Studio interaction, including non-chat signal-first examples
+
 ## Optional Extensions
 
 Studio supports optional package-specific admin pages through extensions.
@@ -100,7 +118,10 @@ config :jido_studio,
   live_ops: [
     enabled: true,
     auto_follow_default: true,
-    scope_keys: [:project_id, :user_id]
+    scope_keys: [:project_id, :user_id],
+    event_stream_limit: 100,
+    agent_list_poll_ms: 2_000,
+    viewer_tracking: true
   ],
   delegation: [
     enabled: true
@@ -113,6 +134,13 @@ config :jido_studio,
   evals: [
     enabled: true,
     rule_sets: [:default]
+  ],
+  agent_interactions: [
+    enabled: true,
+    default_tab: :auto,
+    runner_timeout_ms: 5_000,
+    runner_history_limit: 20,
+    internal_agent_tags: ["internal"]
   ]
 ```
 
@@ -123,6 +151,7 @@ config :jido_studio,
   pubsub: MyApp.PubSub,
   live_ops: [
     enabled: true,
+    viewer_tracking: true,
     presence_module: MyApp.Presence
   ]
 ```
@@ -163,10 +192,12 @@ Template:
 
 Start Phoenix and open `/studio`. For MVP pages, verify:
 
+- `Home` (fleet health overview)
 - `Agents` (live runtime and debug toggle)
-- `Registry` (discovery catalog)
-- `Threads` (persisted thread/memory explorer)
-- `Traces` (trace list + detail timeline)
+- `Catalog` (discovery catalog)
+- `Activity` (operational timeline)
+- `Diagnostics` (deep tooling + cluster health)
+- `About` (links and product context)
 
 ## Runtime Installation Modes
 
@@ -230,14 +261,33 @@ Notes:
 
 ## Features
 
-- **Agents** — Browse, inspect, and chat with running agents
-- **Live Ops** — Event-driven agent updates with scope filtering and auto-follow
-- **Delegation/Tasks** — Sub-agent and task lifecycle visibility
-- **Tool/Middleware Insights** — Runtime usage + timing summaries
-- **Registry** — Discovery-powered catalog of agents/actions/sensors/plugins
+- **Home** — Fleet health cards, attention cues, and quick links
+- **Agents** — Active instance index with follow/unfollow, auto-follow targets, filter/sort, viewer counts, uptime, and last activity
+- **Catalog** — Discovery-powered catalog of agents/actions/sensors/plugins (canonical route `/catalog`; `/registry` remains compatible)
+- **Activity** — Cross-surface operational timeline and plain-language summaries
+- **Diagnostics** — Deep technical routing into traces/actions/workflows/signals/threads with node health summaries
+- **Dual Interaction Surface** — Chat-first UX for chat-capable agents plus an `Interact` workbench for non-chat/runtime-driven interaction
+- **Signal/Action Introspection** — Hybrid runtime+static consumed-signal routes, route origins, action targets, and schema extraction with safe fallbacks
+- **Guarded Runner** — Explicit arm-before-run execution, sync/async dispatch, payload JSON validation, and per-instance run history persistence
+- **Internal Agents by Tags** — Discovered agents are split into `Product Agents` and `Internal Agents` using `agent_interactions.internal_agent_tags`
+- **Cluster Scope Selector** — Global node scope (`node=all` or `node=<name>`) propagated across navigation
+- **Live Ops** — Event-driven updates with polling fallback, scoped subscriptions, and viewer presence topics
+- **Messages/Events/TODOs** — Runtime thread message snapshots, merged event stream with expandable raw payloads, and strategy TODO visibility
+- **Delegation/Tasks** — Sub-agent detail tabs (config/messages/middleware/tools/events) and task lifecycle visibility
+- **Tool/Middleware Insights** — Runtime summaries, config snapshots, and trace deep links
 - **Threads** — Inspect persisted thread/memory entries
 - **Traces** — Trace list, span timeline, internal-span filtering, and eval history
 - **Settings** — Configure runtime behavior
+- **About** — Official links, version info, and support/docs pointers
+
+## Non-Chat Example Recipes
+
+Studio Playground seeds non-chat examples under `dev/studio_playground/lib/studio_playground/demo_agents/non_chat_agents.ex`:
+
+- `StudioPlayground.DemoAgents.SignalRunnerAgent` — Signal-first route execution example for introspection and guarded dispatch
+- `StudioPlayground.DemoAgents.DeviceControlAgent` — Schema-driven control flows with richer action payloads
+
+These examples are registered in `dev/studio_playground/lib/studio_playground/demo_agents.ex` so they appear in the active/discovered lists by default.
 
 ## Observability Persistence
 

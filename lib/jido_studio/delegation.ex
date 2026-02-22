@@ -33,6 +33,19 @@ defmodule JidoStudio.Delegation do
 
   def list_subagents(_, _), do: []
 
+  @spec get_subagent(String.t(), String.t(), keyword()) :: map() | nil
+  def get_subagent(parent_agent_id, subagent_id, opts \\ [])
+
+  def get_subagent(parent_agent_id, subagent_id, opts)
+      when is_binary(parent_agent_id) and is_binary(subagent_id) do
+    list_subagents(parent_agent_id, opts)
+    |> Enum.find(fn sub ->
+      sub[:agent_id] == subagent_id
+    end)
+  end
+
+  def get_subagent(_, _, _), do: nil
+
   @spec delegation_graph(String.t(), keyword()) :: map()
   def delegation_graph(trace_id, opts \\ [])
 
@@ -102,6 +115,27 @@ defmodule JidoStudio.Delegation do
   end
 
   def list_tasks(_, _), do: []
+
+  @spec list_subagent_events(String.t(), String.t(), keyword()) :: [map()]
+  def list_subagent_events(trace_id, subagent_id, opts \\ [])
+
+  def list_subagent_events(trace_id, subagent_id, opts)
+      when is_binary(trace_id) and is_binary(subagent_id) do
+    limit = normalize_limit(Keyword.get(opts, :limit, 400), 400)
+
+    Tracing.list_trace_events(trace_id, order: :asc, limit: limit)
+    |> Enum.filter(fn event ->
+      event_agent_id = event[:agent_id]
+      parent_agent_id = event[:parent_agent_id]
+      metadata = event[:metadata] || %{}
+      metadata_subagent_id = metadata[:subagent_id] || metadata["subagent_id"]
+
+      event_agent_id == subagent_id or parent_agent_id == subagent_id or
+        metadata_subagent_id == subagent_id
+    end)
+  end
+
+  def list_subagent_events(_, _, _), do: []
 
   @spec list_tool_runs(String.t(), keyword()) :: [map()]
   def list_tool_runs(agent_id, opts \\ [])

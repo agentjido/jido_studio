@@ -99,11 +99,15 @@ defmodule JidoStudio.Router do
           session: {JidoStudio.Router, :__session__, [session_args]},
           on_mount: [{JidoStudio.Hooks, :default} | on_mount],
           root_layout: {JidoStudio.Layouts, :studio} do
-          Phoenix.LiveView.Router.live("/", JidoStudio.AgentsLive, :index)
+          Phoenix.LiveView.Router.live("/", JidoStudio.HomeLive, :index)
           Phoenix.LiveView.Router.live("/agents", JidoStudio.AgentsLive, :index)
           Phoenix.LiveView.Router.live("/agents/:slug/:instance_id", JidoStudio.AgentsLive, :show)
           Phoenix.LiveView.Router.live("/agents/:slug", JidoStudio.AgentsLive, :show)
+          Phoenix.LiveView.Router.live("/catalog", JidoStudio.CatalogLive, :index)
           Phoenix.LiveView.Router.live("/registry", JidoStudio.RegistryLive, :index)
+          Phoenix.LiveView.Router.live("/activity", JidoStudio.ActivityLive, :index)
+          Phoenix.LiveView.Router.live("/diagnostics", JidoStudio.DiagnosticsLive, :index)
+          Phoenix.LiveView.Router.live("/about", JidoStudio.AboutLive, :index)
           Phoenix.LiveView.Router.live("/threads", JidoStudio.ThreadsLive, :index)
 
           Phoenix.LiveView.Router.live(

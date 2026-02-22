@@ -56,6 +56,105 @@
     });
   }
 
+  function detectTimezone() {
+    try {
+      var timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      return timezone && timezone.trim() !== "" ? timezone : "UTC";
+    } catch (_error) {
+      return "UTC";
+    }
+  }
+
+  function syncTimezoneForms() {
+    var timezone = detectTimezone();
+
+    document.querySelectorAll("[data-js-timezone-form]").forEach(function (form) {
+      var input = form.querySelector("[data-js-timezone-input]");
+      if (!input) return;
+
+      var previous = input.value || "";
+      if (previous === timezone) return;
+
+      input.value = timezone;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+
+  function parseMs(value) {
+    var parsed = parseInt(value || "", 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function formatRelativeTime(milliseconds) {
+    var now = Date.now();
+    var diffMs = milliseconds - now;
+    var absMs = Math.abs(diffMs);
+    var rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+    if (absMs < 60 * 1000) {
+      return rtf.format(Math.round(diffMs / 1000), "second");
+    }
+
+    if (absMs < 60 * 60 * 1000) {
+      return rtf.format(Math.round(diffMs / (60 * 1000)), "minute");
+    }
+
+    if (absMs < 24 * 60 * 60 * 1000) {
+      return rtf.format(Math.round(diffMs / (60 * 60 * 1000)), "hour");
+    }
+
+    return rtf.format(Math.round(diffMs / (24 * 60 * 60 * 1000)), "day");
+  }
+
+  function formatLocalTime(milliseconds) {
+    try {
+      return new Date(milliseconds).toLocaleString();
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function formatUptimeLabel(milliseconds) {
+    if (!Number.isFinite(milliseconds) || milliseconds < 0) return "n/a";
+
+    var totalSeconds = Math.floor(milliseconds / 1000);
+    var hours = Math.floor(totalSeconds / 3600);
+    var minutes = Math.floor((totalSeconds % 3600) / 60);
+    var seconds = totalSeconds % 60;
+
+    if (hours > 0) return hours + "h " + minutes + "m";
+    if (minutes > 0) return minutes + "m " + seconds + "s";
+    return seconds + "s";
+  }
+
+  function refreshTimeElements() {
+    document.querySelectorAll("[data-js-ts]").forEach(function (el) {
+      var ms = parseMs(el.getAttribute("data-js-ts"));
+      if (!Number.isFinite(ms)) return;
+
+      var relative = el.getAttribute("data-js-relative") === "true";
+      var local = formatLocalTime(ms);
+      var text = relative ? formatRelativeTime(ms) : local;
+
+      el.textContent = text || local || "n/a";
+
+      if (local) {
+        el.setAttribute("title", local);
+      }
+    });
+
+    document.querySelectorAll("[data-js-uptime-ms]").forEach(function (el) {
+      var ms = parseMs(el.getAttribute("data-js-uptime-ms"));
+      if (!Number.isFinite(ms)) return;
+      el.textContent = formatUptimeLabel(ms);
+    });
+  }
+
+  function syncClientTime() {
+    syncTimezoneForms();
+    refreshTimeElements();
+  }
+
   document.addEventListener(
     "input",
     function (event) {
@@ -89,5 +188,10 @@
   document.addEventListener("DOMContentLoaded", syncAllComposerInputs);
   window.addEventListener("pageshow", syncAllComposerInputs);
   window.addEventListener("phx:page-loading-stop", syncAllComposerInputs);
+  document.addEventListener("DOMContentLoaded", syncClientTime);
+  window.addEventListener("pageshow", syncClientTime);
+  window.addEventListener("phx:page-loading-stop", syncClientTime);
+  window.setInterval(refreshTimeElements, 15 * 1000);
   setTimeout(syncAllComposerInputs, 0);
+  setTimeout(syncClientTime, 0);
 })();

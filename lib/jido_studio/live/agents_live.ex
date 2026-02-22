@@ -3,14 +3,23 @@ defmodule JidoStudio.AgentsLive do
   use Phoenix.LiveView
 
   import JidoStudio.Components
+  import JidoStudio.Live.AgentsLive.Panes
+  import JidoStudio.Live.AgentsLive.Support
 
+  alias JidoStudio.AgentInteractions
   alias JidoStudio.AgentRegistry
+  alias JidoStudio.Cluster.Scope
+  alias JidoStudio.Agents.FilterForm, as: AgentsFilterForm
+  alias JidoStudio.Agents.Introspection
+  alias JidoStudio.Agents.MessageSnapshot
+  alias JidoStudio.Agents.Runner
+  alias JidoStudio.Agents.RunnerForm
   alias JidoStudio.Chat.Runtime, as: ChatRuntime
   alias JidoStudio.Chat.Session, as: ChatSession
   alias JidoStudio.Delegation
   alias JidoStudio.LiveOps
-  alias JidoStudio.Naming
   alias JidoStudio.Observability
+  alias JidoStudio.Observability.Incidents
   alias JidoStudio.PresenterResolver
   alias JidoStudio.Presenters.Default
   alias JidoStudio.TraceBuffer
@@ -23,8 +32,21 @@ defmodule JidoStudio.AgentsLive do
   @impl true
   def mount(_params, _session, socket) do
     jido_instance = resolve_jido_instance(socket.assigns[:jido_instance])
-    agents = AgentRegistry.list_agents(jido_instance: jido_instance)
-    running_count = AgentRegistry.running_count(jido_instance)
+
+    agents =
+      AgentRegistry.list_agents(
+        jido_instance: jido_instance,
+        scope: socket.assigns[:cluster_scope]
+      )
+
+    {product_agents, internal_agents} = split_discovered_agents(agents)
+
+    running_count =
+      AgentRegistry.running_count(
+        jido_instance,
+        scope: socket.assigns[:cluster_scope]
+      )
+
     start_form_schema = Default.start_form_schema(%{})
     scope_filters = %{project_id: nil, user_id: nil, agent_id: nil}
 
@@ -33,8 +55,12 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:page_title, "Agents")
       |> assign(:jido_instance, jido_instance)
       |> assign(:agents, agents)
+      |> assign(:product_agents, product_agents)
+      |> assign(:internal_agents, internal_agents)
       |> assign(:running_count, running_count)
       |> assign(:jido_configured?, jido_instance != nil)
+      |> assign(:agent_interactions_enabled?, AgentInteractions.enabled?())
+      |> assign(:internal_agent_tags, AgentInteractions.internal_agent_tags())
       |> assign(:agent, nil)
       |> assign(:presenter, Default)
       |> assign(:agent_workspace_key, nil)
@@ -65,7 +91,7 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:trace_preview_limit, Observability.trace_preview_limit())
       |> assign(:trace_include_agent_debug?, Observability.trace_include_agent_debug?())
       |> assign(:live_event_query, "")
-      |> assign(:live_event_limit, 200)
+      |> assign(:live_event_limit, LiveOps.event_stream_limit())
       |> assign(:instance_observability_events, [])
       |> assign(:instance_debug_events, [])
       |> assign(:instance_telemetry_events, [])
@@ -77,7 +103,33 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:delegation_graph, %{nodes: [], edges: []})
       |> assign(:tool_insights, [])
       |> assign(:middleware_snapshots, [])
+      |> assign(:triage_links, %{})
+      |> assign(:runtime_messages, [])
+      |> assign(:runtime_todos, [])
+      |> assign(:instance_event_stream, [])
+      |> assign(:instance_event_query, "")
+      |> assign(:subagent_events, %{})
+      |> assign(:expanded_subagent_id, nil)
+      |> assign(:subagent_detail_tab, "config")
+      |> assign(:expanded_event_ids, MapSet.new())
+      |> assign(:interaction_model, empty_interaction_model())
+      |> assign(:runner_form, RunnerForm.new())
+      |> assign(:runner_result, nil)
+      |> assign(:runner_history, [])
+      |> assign(:interaction_history, %{})
+      |> assign(:show_advanced_signals?, true)
+      |> assign(:signal_scope, "entry_advanced")
       |> assign(:scope_filters, scope_filters)
+      |> assign(:agent_filters, AgentsFilterForm.new())
+      |> assign(:active_instances, [])
+      |> assign(:filtered_instances, [])
+      |> assign(:followed_instance_id, nil)
+      |> assign(:auto_follow_instances?, LiveOps.auto_follow_default?())
+      |> assign(:auto_follow_target, %{instance_id: nil, project_id: nil, user_id: nil})
+      |> assign(:viewer_subscriptions, MapSet.new())
+      |> assign(:viewer_id, viewer_id())
+      |> assign(:tracked_viewer_instance_id, nil)
+      |> assign(:user_timezone, "UTC")
       |> assign(:live_ops_enabled?, LiveOps.enabled?())
       |> assign(:live_ops_presence?, LiveOps.presence_available?())
       |> assign(:live_ops_realtime?, false)
@@ -101,15 +153,44 @@ defmodule JidoStudio.AgentsLive do
     jido_instance = socket.assigns[:jido_instance]
 
     agents =
-      AgentRegistry.list_agents(jido_instance: jido_instance)
+      AgentRegistry.list_agents(
+        jido_instance: jido_instance,
+        scope: socket.assigns[:cluster_scope]
+      )
       |> filter_agents_by_scope(socket.assigns[:scope_filters])
 
-    running_count = AgentRegistry.running_count(jido_instance)
+    {product_agents, internal_agents} = split_discovered_agents(agents)
+
+    active_instances =
+      build_active_instances(agents,
+        now: DateTime.utc_now(),
+        viewer_count_fun: &LiveOps.viewer_count/1
+      )
+
+    filtered_instances =
+      AgentsFilterForm.apply_filters(active_instances, socket.assigns.agent_filters)
+
+    running_count =
+      AgentRegistry.running_count(
+        jido_instance,
+        scope: socket.assigns[:cluster_scope]
+      )
+
+    socket =
+      socket
+      |> assign(:agents, agents)
+      |> assign(:product_agents, product_agents)
+      |> assign(:internal_agents, internal_agents)
+      |> assign(:running_count, running_count)
+      |> assign(:active_instances, active_instances)
+      |> assign(:filtered_instances, filtered_instances)
+      |> maybe_subscribe_viewers(active_instances)
+      |> maybe_auto_follow_filtered_instances()
 
     {:noreply,
      socket
-     |> assign(:agents, agents)
-     |> assign(:running_count, running_count)}
+     |> assign(:followed_instance_id, resolve_followed_instance(socket, filtered_instances))
+     |> maybe_track_followed_viewer()}
   end
 
   @impl true
@@ -122,13 +203,191 @@ defmodule JidoStudio.AgentsLive do
     end
 
     agents =
-      AgentRegistry.list_agents(jido_instance: jido_instance)
+      AgentRegistry.list_agents(
+        jido_instance: jido_instance,
+        scope: socket.assigns[:cluster_scope]
+      )
       |> filter_agents_by_scope(filters)
 
-    {:noreply,
-     socket
-     |> assign(:scope_filters, filters)
-     |> assign(:agents, agents)}
+    {product_agents, internal_agents} = split_discovered_agents(agents)
+
+    active_instances =
+      build_active_instances(agents,
+        now: DateTime.utc_now(),
+        viewer_count_fun: &LiveOps.viewer_count/1
+      )
+
+    filtered_instances =
+      AgentsFilterForm.apply_filters(active_instances, socket.assigns.agent_filters)
+
+    socket =
+      socket
+      |> assign(:scope_filters, filters)
+      |> assign(:agents, agents)
+      |> assign(:product_agents, product_agents)
+      |> assign(:internal_agents, internal_agents)
+      |> assign(:active_instances, active_instances)
+      |> assign(:filtered_instances, filtered_instances)
+      |> maybe_subscribe_viewers(active_instances)
+      |> maybe_auto_follow_filtered_instances()
+
+    socket =
+      socket
+      |> assign(:followed_instance_id, resolve_followed_instance(socket, filtered_instances))
+      |> maybe_track_followed_viewer()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("update_instance_filters", %{"filters" => params}, socket) do
+    filters = AgentsFilterForm.parse(params, socket.assigns.agent_filters)
+    filtered_instances = AgentsFilterForm.apply_filters(socket.assigns.active_instances, filters)
+
+    socket =
+      socket
+      |> assign(:agent_filters, filters)
+      |> assign(:filtered_instances, filtered_instances)
+      |> maybe_auto_follow_filtered_instances()
+
+    socket =
+      socket
+      |> assign(:followed_instance_id, resolve_followed_instance(socket, filtered_instances))
+      |> maybe_track_followed_viewer()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("toggle_auto_follow_instances", _params, socket) do
+    socket =
+      socket
+      |> assign(:auto_follow_instances?, not socket.assigns.auto_follow_instances?)
+      |> maybe_auto_follow_filtered_instances()
+
+    socket =
+      socket
+      |> assign(
+        :followed_instance_id,
+        resolve_followed_instance(socket, socket.assigns.filtered_instances)
+      )
+      |> maybe_track_followed_viewer()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("update_auto_follow_target", %{"target" => params}, socket) do
+    target = normalize_auto_follow_target(params, socket.assigns.auto_follow_target)
+
+    socket =
+      socket
+      |> assign(:auto_follow_target, target)
+      |> maybe_auto_follow_filtered_instances()
+
+    socket =
+      socket
+      |> assign(
+        :followed_instance_id,
+        resolve_followed_instance(socket, socket.assigns.filtered_instances)
+      )
+      |> maybe_track_followed_viewer()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("follow_instance", %{"id" => instance_id}, socket) do
+    socket =
+      socket
+      |> assign(:followed_instance_id, normalize_scope_value(instance_id))
+      |> maybe_track_followed_viewer()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("unfollow_instance", _params, socket) do
+    socket =
+      socket
+      |> assign(:followed_instance_id, nil)
+      |> maybe_track_followed_viewer()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
+    normalized =
+      timezone
+      |> to_string()
+      |> String.trim()
+
+    socket =
+      socket
+      |> assign(:user_timezone, if(normalized == "", do: "UTC", else: normalized))
+      |> maybe_track_followed_viewer()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("set_timezone", _params, socket) do
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("update_instance_event_query", %{"query" => query}, socket) do
+    {:noreply, assign(socket, :instance_event_query, String.trim(query || ""))}
+  end
+
+  @impl true
+  def handle_event("toggle_event_row", %{"id" => event_id}, socket) do
+    expanded = socket.assigns[:expanded_event_ids] || MapSet.new()
+
+    expanded =
+      if MapSet.member?(expanded, event_id) do
+        MapSet.delete(expanded, event_id)
+      else
+        MapSet.put(expanded, event_id)
+      end
+
+    {:noreply, assign(socket, :expanded_event_ids, expanded)}
+  end
+
+  @impl true
+  def handle_event("toggle_subagent_row", %{"id" => subagent_id}, socket) do
+    expanded =
+      if socket.assigns.expanded_subagent_id == subagent_id do
+        nil
+      else
+        subagent_id
+      end
+
+    socket =
+      socket
+      |> assign(:expanded_subagent_id, expanded)
+      |> maybe_load_subagent_events(expanded)
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("select_subagent_detail_tab", %{"tab" => tab}, socket) do
+    tab =
+      case tab do
+        value when value in ["config", "messages", "middleware", "tools", "events"] -> value
+        _ -> "config"
+      end
+
+    socket =
+      socket
+      |> assign(:subagent_detail_tab, tab)
+      |> maybe_load_subagent_events(
+        if(tab == "events", do: socket.assigns.expanded_subagent_id, else: nil)
+      )
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -195,6 +454,113 @@ defmodule JidoStudio.AgentsLive do
     else
       {:noreply, socket}
     end
+  end
+
+  @impl true
+  def handle_event("select_signal", %{"key" => key}, socket) do
+    form =
+      socket.assigns.runner_form
+      |> RunnerForm.select_signal(key)
+      |> maybe_apply_payload_template(socket.assigns.interaction_model, {:signal, key})
+
+    {:noreply, socket |> assign(:runner_form, form) |> assign(:runner_result, nil)}
+  end
+
+  @impl true
+  def handle_event("select_action", %{"key" => key}, socket) do
+    form =
+      socket.assigns.runner_form
+      |> RunnerForm.select_action(key)
+      |> maybe_apply_payload_template(socket.assigns.interaction_model, {:action, key})
+
+    {:noreply, socket |> assign(:runner_form, form) |> assign(:runner_result, nil)}
+  end
+
+  @impl true
+  def handle_event("update_runner_payload", %{"runner" => params}, socket) do
+    form = RunnerForm.parse(params, socket.assigns.runner_form)
+    {:noreply, assign(socket, :runner_form, form)}
+  end
+
+  @impl true
+  def handle_event("set_dispatch_mode", %{"mode" => mode}, socket) do
+    form =
+      RunnerForm.parse(%{"dispatch_mode" => mode}, socket.assigns.runner_form)
+      |> RunnerForm.disarm()
+
+    {:noreply, assign(socket, :runner_form, form)}
+  end
+
+  @impl true
+  def handle_event("arm_runner_execute", _params, socket) do
+    {:noreply, assign(socket, :runner_form, RunnerForm.arm(socket.assigns.runner_form))}
+  end
+
+  @impl true
+  def handle_event("clear_runner_history", _params, socket) do
+    instance_id = socket.assigns[:active_instance_id]
+    interaction_history = socket.assigns[:interaction_history] || %{}
+
+    interaction_history =
+      if is_binary(instance_id) do
+        Map.put(interaction_history, instance_id, [])
+      else
+        interaction_history
+      end
+
+    {:noreply,
+     socket
+     |> assign(:runner_history, [])
+     |> assign(:interaction_history, interaction_history)
+     |> assign(:runner_result, nil)
+     |> schedule_workspace_persist(:interaction_history, 100)}
+  end
+
+  @impl true
+  def handle_event("run_selected_interaction", _params, socket) do
+    with true <- is_pid(socket.assigns[:active_instance_pid]),
+         true <- RunnerForm.can_execute?(socket.assigns.runner_form),
+         {:ok, payload} <- decode_runner_payload(socket.assigns.runner_form.payload_json),
+         {:ok, dispatch_ref} <- selected_dispatch_ref(socket),
+         {:ok, result} <-
+           Runner.dispatch(socket.assigns.active_instance_pid, dispatch_ref, payload,
+             dispatch_mode: socket.assigns.runner_form.dispatch_mode,
+             timeout_ms: AgentInteractions.runner_timeout_ms()
+           ) do
+      instance_id = socket.assigns[:active_instance_id]
+      history_entry = normalize_runner_history_entry(result, dispatch_ref)
+      history = prepend_runner_history(socket.assigns[:runner_history], history_entry)
+
+      interaction_history =
+        update_interaction_history(socket.assigns[:interaction_history], instance_id, history)
+
+      {:noreply,
+       socket
+       |> assign(:runner_result, %{status: :ok, value: result})
+       |> assign(:runner_history, history)
+       |> assign(:interaction_history, interaction_history)
+       |> assign(:runner_form, RunnerForm.disarm(socket.assigns.runner_form))
+       |> schedule_workspace_persist(:interaction_history, 100)}
+    else
+      false ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Select a running instance and arm execute before dispatching."
+         )}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:runner_result, %{status: :error, value: reason})
+         |> put_flash(:error, "Dispatch failed: #{format_dispatch_error(reason)}")}
+    end
+  end
+
+  @impl true
+  def handle_event("toggle_advanced_signals", _params, socket) do
+    {:noreply, assign(socket, :show_advanced_signals?, not socket.assigns.show_advanced_signals?)}
   end
 
   @impl true
@@ -552,17 +918,47 @@ defmodule JidoStudio.AgentsLive do
         jido_instance = socket.assigns[:jido_instance]
 
         agents =
-          AgentRegistry.list_agents(jido_instance: jido_instance)
+          AgentRegistry.list_agents(
+            jido_instance: jido_instance,
+            scope: socket.assigns[:cluster_scope]
+          )
           |> filter_agents_by_scope(socket.assigns[:scope_filters])
 
-        socket
-        |> assign(:agents, agents)
-        |> assign(:running_count, AgentRegistry.running_count(jido_instance))
+        {product_agents, internal_agents} = split_discovered_agents(agents)
+
+        active_instances =
+          build_active_instances(agents,
+            now: DateTime.utc_now(),
+            viewer_count_fun: &LiveOps.viewer_count/1
+          )
+
+        filtered_instances =
+          AgentsFilterForm.apply_filters(active_instances, socket.assigns.agent_filters)
+
+        socket =
+          socket
+          |> assign(:agents, agents)
+          |> assign(:product_agents, product_agents)
+          |> assign(:internal_agents, internal_agents)
+          |> assign(
+            :running_count,
+            AgentRegistry.running_count(jido_instance, scope: socket.assigns[:cluster_scope])
+          )
+          |> assign(:active_instances, active_instances)
+          |> assign(:filtered_instances, filtered_instances)
+          |> maybe_subscribe_viewers(active_instances)
+          |> maybe_auto_follow_filtered_instances()
+
+        assign(
+          socket,
+          :followed_instance_id,
+          resolve_followed_instance(socket, filtered_instances)
+        )
       else
         socket
       end
 
-    {:noreply, socket}
+    {:noreply, maybe_track_followed_viewer(socket)}
   end
 
   @impl true
@@ -582,8 +978,81 @@ defmodule JidoStudio.AgentsLive do
   end
 
   @impl true
+  def handle_info(%Phoenix.Socket.Broadcast{event: "presence_diff", topic: topic}, socket) do
+    if String.starts_with?(topic, "live_ops:viewers:") and socket.assigns.live_action == :index do
+      agents = socket.assigns.agents || []
+
+      active_instances =
+        build_active_instances(agents,
+          now: DateTime.utc_now(),
+          viewer_count_fun: &LiveOps.viewer_count/1
+        )
+
+      filtered_instances =
+        AgentsFilterForm.apply_filters(active_instances, socket.assigns.agent_filters)
+
+      socket =
+        socket
+        |> assign(:active_instances, active_instances)
+        |> assign(:filtered_instances, filtered_instances)
+        |> maybe_auto_follow_filtered_instances()
+
+      {:noreply,
+       socket
+       |> assign(:followed_instance_id, resolve_followed_instance(socket, filtered_instances))
+       |> maybe_track_followed_viewer()}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
   def handle_info(:refresh_instance_observability, socket) do
-    {:noreply, refresh_instance_observability(socket)}
+    refreshed = refresh_instance_observability(socket)
+
+    if socket.assigns.live_action == :index do
+      agents =
+        AgentRegistry.list_agents(
+          jido_instance: socket.assigns[:jido_instance],
+          scope: socket.assigns[:cluster_scope]
+        )
+        |> filter_agents_by_scope(socket.assigns[:scope_filters])
+
+      {product_agents, internal_agents} = split_discovered_agents(agents)
+
+      active_instances =
+        build_active_instances(agents,
+          now: DateTime.utc_now(),
+          viewer_count_fun: &LiveOps.viewer_count/1
+        )
+
+      filtered_instances =
+        AgentsFilterForm.apply_filters(active_instances, socket.assigns.agent_filters)
+
+      refreshed =
+        refreshed
+        |> assign(:agents, agents)
+        |> assign(:product_agents, product_agents)
+        |> assign(:internal_agents, internal_agents)
+        |> assign(
+          :running_count,
+          AgentRegistry.running_count(
+            socket.assigns[:jido_instance],
+            scope: socket.assigns[:cluster_scope]
+          )
+        )
+        |> assign(:active_instances, active_instances)
+        |> assign(:filtered_instances, filtered_instances)
+        |> maybe_subscribe_viewers(active_instances)
+        |> maybe_auto_follow_filtered_instances()
+
+      {:noreply,
+       refreshed
+       |> assign(:followed_instance_id, resolve_followed_instance(refreshed, filtered_instances))
+       |> maybe_track_followed_viewer()}
+    else
+      {:noreply, maybe_track_followed_viewer(refreshed)}
+    end
   end
 
   @impl true
@@ -671,69 +1140,126 @@ defmodule JidoStudio.AgentsLive do
       stream.request_id == request_id
   end
 
-  defp apply_action(socket, :index, _params) do
+  defp apply_action(socket, :index, params) do
     start_form_schema = Default.start_form_schema(%{})
     jido_instance = socket.assigns[:jido_instance]
 
-    scope_filters =
-      socket.assigns[:scope_filters] || %{project_id: nil, user_id: nil, agent_id: nil}
+    base_scope = socket.assigns[:scope_filters] || %{project_id: nil, user_id: nil, agent_id: nil}
+    scope_filters = merge_scope_filters(base_scope, Map.get(params, "scope"))
+    base_filters = socket.assigns[:agent_filters] || AgentsFilterForm.new()
+    agent_filters = AgentsFilterForm.parse(Map.get(params, "filters"), base_filters)
 
-    agents =
-      AgentRegistry.list_agents(jido_instance: jido_instance)
-      |> filter_agents_by_scope(scope_filters)
+    listed_agents =
+      AgentRegistry.list_agents(
+        jido_instance: jido_instance,
+        scope: socket.assigns[:cluster_scope]
+      )
 
-    running_count = AgentRegistry.running_count(jido_instance)
+    agents = filter_agents_by_scope(listed_agents, scope_filters)
+    {product_agents, internal_agents} = split_discovered_agents(agents)
+
+    active_instances =
+      build_active_instances(agents,
+        now: DateTime.utc_now(),
+        viewer_count_fun: &LiveOps.viewer_count/1
+      )
+
+    filtered_instances = AgentsFilterForm.apply_filters(active_instances, agent_filters)
+    followed_from_params = normalize_scope_value(Map.get(params, "followed_instance_id"))
+
+    running_count =
+      AgentRegistry.running_count(
+        jido_instance,
+        scope: socket.assigns[:cluster_scope]
+      )
+
+    socket =
+      socket
+      |> assign(:page_title, "Agents")
+      |> assign(:scope_filters, scope_filters)
+      |> assign(:agent_filters, agent_filters)
+      |> assign(:agents, agents)
+      |> assign(:product_agents, product_agents)
+      |> assign(:internal_agents, internal_agents)
+      |> assign(:active_instances, active_instances)
+      |> assign(:filtered_instances, filtered_instances)
+      |> assign(
+        :followed_instance_id,
+        followed_from_params || socket.assigns[:followed_instance_id]
+      )
+      |> assign(:running_count, running_count)
+      |> assign(:agent, nil)
+      |> assign(:presenter, Default)
+      |> assign(:agent_workspace_key, nil)
+      |> assign(:running_instances, [])
+      |> assign(:instance_cards, [])
+      |> assign(:active_instance_id, nil)
+      |> assign(:active_instance_pid, nil)
+      |> assign(:runtime_status, nil)
+      |> assign(:chat_state, ChatSession.empty())
+      |> assign(:chat_config, default_chat_config())
+      |> assign(:chat_enabled?, false)
+      |> assign(:chat_pending?, false)
+      |> assign(:chat_pending_message_id, nil)
+      |> assign(:chat_stream, nil)
+      |> assign(:draft_message, "")
+      |> assign(:workspace_source, :fresh)
+      |> assign(:persisted_thread_contexts, %{})
+      |> assign(:persist_workspace_ref, nil)
+      |> assign(:workbench_tab, :chat)
+      |> assign(:runtime_messages, [])
+      |> assign(:runtime_todos, [])
+      |> assign(:instance_event_stream, [])
+      |> assign(:instance_event_query, "")
+      |> assign(:expanded_event_ids, MapSet.new())
+      |> assign(:expanded_subagent_id, nil)
+      |> assign(:subagent_detail_tab, "config")
+      |> assign(:subagent_events, %{})
+      |> assign(:interaction_model, empty_interaction_model())
+      |> assign(:runner_form, RunnerForm.new())
+      |> assign(:runner_result, nil)
+      |> assign(:runner_history, [])
+      |> assign(:interaction_history, %{})
+      |> assign(:show_advanced_signals?, true)
+      |> assign(:signal_scope, "entry_advanced")
+      |> assign_chat_controls(@default_model)
+      |> assign(:start_form_schema, start_form_schema)
+      |> assign(:start_form, default_start_form(start_form_schema))
+      |> assign(:instance_observability_events, [])
+      |> assign(:instance_debug_events, [])
+      |> assign(:instance_telemetry_events, [])
+      |> assign(:instance_debug_error, nil)
+      |> assign(:instance_debug_enabled?, false)
+      |> assign(:instance_debug_level, "off")
+      |> assign(:subagents, [])
+      |> assign(:tasks, [])
+      |> assign(:delegation_graph, %{nodes: [], edges: []})
+      |> assign(:tool_insights, [])
+      |> assign(:middleware_snapshots, [])
+      |> assign(:triage_links, %{})
+      |> maybe_subscribe_viewers(active_instances)
+      |> maybe_auto_follow_filtered_instances()
 
     socket
-    |> assign(:page_title, "Agents")
-    |> assign(:agents, agents)
-    |> assign(:running_count, running_count)
-    |> assign(:agent, nil)
-    |> assign(:presenter, Default)
-    |> assign(:agent_workspace_key, nil)
-    |> assign(:running_instances, [])
-    |> assign(:instance_cards, [])
-    |> assign(:active_instance_id, nil)
-    |> assign(:active_instance_pid, nil)
-    |> assign(:runtime_status, nil)
-    |> assign(:chat_state, ChatSession.empty())
-    |> assign(:chat_config, default_chat_config())
-    |> assign(:chat_enabled?, false)
-    |> assign(:chat_pending?, false)
-    |> assign(:chat_pending_message_id, nil)
-    |> assign(:chat_stream, nil)
-    |> assign(:draft_message, "")
-    |> assign(:workspace_source, :fresh)
-    |> assign(:persisted_thread_contexts, %{})
-    |> assign(:persist_workspace_ref, nil)
-    |> assign(:workbench_tab, :chat)
-    |> assign_chat_controls(@default_model)
-    |> assign(:start_form_schema, start_form_schema)
-    |> assign(:start_form, default_start_form(start_form_schema))
-    |> assign(:instance_observability_events, [])
-    |> assign(:instance_debug_events, [])
-    |> assign(:instance_telemetry_events, [])
-    |> assign(:instance_debug_error, nil)
-    |> assign(:instance_debug_enabled?, false)
-    |> assign(:instance_debug_level, "off")
-    |> assign(:subagents, [])
-    |> assign(:tasks, [])
-    |> assign(:delegation_graph, %{nodes: [], edges: []})
-    |> assign(:tool_insights, [])
-    |> assign(:middleware_snapshots, [])
+    |> assign(:followed_instance_id, resolve_followed_instance(socket, filtered_instances))
+    |> maybe_track_followed_viewer()
   end
 
   defp apply_action(socket, :show, %{"slug" => slug} = params) do
     jido_instance = socket.assigns[:jido_instance]
     requested_instance_id = Map.get(params, "instance_id")
-    workbench_tab = parse_workbench_tab(Map.get(params, "panel"), Map.get(params, "view"))
+    requested_workbench_tab = requested_workbench_tab(params)
     scope_filters = merge_scope_filters(socket.assigns[:scope_filters], Map.get(params, "scope"))
 
-    case AgentRegistry.get_agent(slug, jido_instance: jido_instance) do
+    case AgentRegistry.get_agent(
+           slug,
+           jido_instance: jido_instance,
+           scope: socket.assigns[:cluster_scope]
+         ) do
       nil ->
         socket
         |> put_flash(:error, "Agent not found")
-        |> push_navigate(to: "#{socket.assigns.prefix}/agents")
+        |> push_navigate(to: scoped_path("#{socket.assigns.prefix}/agents"))
 
       agent ->
         running_instances = agent.running_instances || []
@@ -785,6 +1311,27 @@ defmodule JidoStudio.AgentsLive do
         traces_path =
           traces_path(socket.assigns.prefix, agent, active_instance_id, active_instance_id)
 
+        observability_preview =
+          if selected_instance do
+            load_instance_observability(
+              selected_instance.id,
+              selected_instance.pid,
+              socket.assigns.trace_preview_limit,
+              socket.assigns.trace_include_agent_debug?
+            )
+          else
+            %{events: []}
+          end
+
+        interaction_model =
+          if AgentInteractions.enabled?() do
+            Introspection.build(agent.module, %{pid: active_instance_pid},
+              events: observability_preview[:events] || []
+            )
+          else
+            empty_interaction_model()
+          end
+
         view_model =
           presenter_view_model(
             presenter,
@@ -794,14 +1341,7 @@ defmodule JidoStudio.AgentsLive do
             pid: active_instance_pid,
             debug_enabled: selected_instance && instance_debug_enabled(selected_instance),
             raw_state: runtime_status && runtime_status.raw_state,
-            observability_preview:
-              selected_instance &&
-                load_instance_observability(
-                  selected_instance.id,
-                  selected_instance.pid,
-                  socket.assigns.trace_preview_limit,
-                  socket.assigns.trace_include_agent_debug?
-                ),
+            observability_preview: if(selected_instance, do: observability_preview, else: nil),
             traces_path: traces_path
           )
 
@@ -817,18 +1357,22 @@ defmodule JidoStudio.AgentsLive do
 
         chat_enabled = chat_config.enabled and is_pid(active_instance_pid)
 
+        workbench_tab =
+          resolve_default_workbench_tab(requested_workbench_tab, interaction_model, chat_enabled)
+
         tabs =
           view_model
           |> Map.get(:tabs, [%{id: :overview, label: "Overview"}])
           |> ordered_detail_tabs()
 
         socket
-        |> assign(:page_title, Naming.humanize(agent.name))
+        |> assign(:page_title, humanize_agent_name(agent.name))
         |> assign(:agent, agent)
         |> assign(:presenter, presenter)
         |> assign(:running_instances, running_instances)
         |> assign(:instance_cards, instance_cards)
         |> assign(:active_instance_id, active_instance_id)
+        |> assign(:followed_instance_id, active_instance_id)
         |> assign(:active_instance_pid, active_instance_pid)
         |> assign(:runtime_status, runtime_status)
         |> assign(:scope_filters, scope_filters)
@@ -845,7 +1389,11 @@ defmodule JidoStudio.AgentsLive do
         )
         |> assign(:chat_config, chat_config)
         |> assign(:chat_enabled?, chat_enabled)
+        |> assign(:interaction_model, interaction_model)
         |> assign(:workbench_tab, workbench_tab)
+        |> assign(:runner_form, sync_runner_form(socket.assigns[:runner_form], interaction_model))
+        |> assign(:runner_result, nil)
+        |> assign(:runner_history, current_runner_history(socket, active_instance_id))
         |> assign(:detail_tabs, tabs)
         |> assign(:detail_tab, parse_detail_tab(Map.get(params, "tab"), tabs))
         |> assign(:sections_by_tab, Map.get(view_model, :sections_by_tab, %{}))
@@ -857,7 +1405,12 @@ defmodule JidoStudio.AgentsLive do
         )
         |> ensure_workspace_state(agent, active_instance_id)
         |> maybe_subscribe_live_ops(active_instance_id, scope_filters)
+        |> assign(
+          :triage_links,
+          triage_links(socket.assigns.prefix, active_instance_id, scope_filters)
+        )
         |> refresh_instance_observability()
+        |> maybe_track_followed_viewer()
     end
   end
 
@@ -872,6 +1425,8 @@ defmodule JidoStudio.AgentsLive do
         |> assign(:draft_message, "")
         |> assign(:workspace_source, :fresh)
         |> assign(:persisted_thread_contexts, %{})
+        |> assign(:interaction_history, %{})
+        |> assign(:runner_history, [])
         |> assign(:persist_workspace_ref, nil)
         |> assign(:chat_pending?, false)
         |> assign(:chat_pending_message_id, nil)
@@ -893,6 +1448,7 @@ defmodule JidoStudio.AgentsLive do
           |> assign(:chat_pending?, false)
           |> assign(:chat_pending_message_id, nil)
           |> assign(:chat_stream, nil)
+          |> assign(:runner_result, nil)
           |> assign(:ui_model, strategy_model(agent.module))
           |> assign_chat_controls(strategy_model(agent.module))
           |> load_workspace_for(agent.slug, instance_id)
@@ -912,7 +1468,9 @@ defmodule JidoStudio.AgentsLive do
     <div class="p-6 space-y-6">
       <div class="flex items-center justify-between border-b border-js-border pb-4 gap-3">
         <div class="flex items-center gap-2 text-sm text-js-text-muted">
-          <.link navigate={"#{@prefix}/agents"} class="hover:text-js-text">Agents</.link>
+          <.link navigate={scoped_path(@prefix <> "/agents")} class="hover:text-js-text">
+            Agents
+          </.link>
           <span>/</span>
           <span class="text-js-text">{humanize_agent_name(@agent.name)}</span>
         </div>
@@ -1039,10 +1597,33 @@ defmodule JidoStudio.AgentsLive do
         assigns.live_event_limit
       )
 
+    instance_events =
+      instance_events_for_display(
+        assigns.instance_event_stream,
+        assigns.instance_event_query,
+        assigns.live_event_limit
+      )
+
     assigns =
       assigns
       |> assign(:active_messages, ChatSession.active_messages(assigns.chat_state))
       |> assign(:active_thread_name, ChatSession.active_thread_name(assigns.chat_state))
+      |> assign(:runtime_messages, List.wrap(assigns.runtime_messages))
+      |> assign(:runtime_todos, List.wrap(assigns.runtime_todos))
+      |> assign(:instance_events, instance_events)
+      |> assign(
+        :interaction_signals,
+        interaction_signals_for_display(
+          assigns.interaction_model,
+          assigns.show_advanced_signals?
+        )
+      )
+      |> assign(
+        :interaction_actions,
+        interaction_actions_for_display(assigns.interaction_model)
+      )
+      |> assign(:selected_runner_target, RunnerForm.selected_target(assigns.runner_form))
+      |> assign(:expanded_event_ids, assigns.expanded_event_ids || MapSet.new())
       |> assign(:workbench_tab, workbench_tab)
       |> assign(:summary_visible?, summary_visible?)
       |> assign(:workbench_grid_class, workbench_grid_class(summary_visible?))
@@ -1074,7 +1655,9 @@ defmodule JidoStudio.AgentsLive do
     >
       <div class="flex items-center justify-between border-b border-js-border pb-3 gap-3 shrink-0">
         <div class="flex items-center gap-2 text-sm text-js-text-muted">
-          <.link navigate={"#{@prefix}/agents"} class="hover:text-js-text">Agents</.link>
+          <.link navigate={scoped_path(@prefix <> "/agents")} class="hover:text-js-text">
+            Agents
+          </.link>
           <span>/</span>
           <.link navigate={@module_path} class="hover:text-js-text">
             {humanize_agent_name(@agent.name)}
@@ -1118,6 +1701,38 @@ defmodule JidoStudio.AgentsLive do
                 class={workbench_tab_button_class(@workbench_tab == :chat)}
               >
                 Chat
+              </button>
+              <button
+                type="button"
+                phx-click="select_workbench_tab"
+                phx-value-panel="interact"
+                class={workbench_tab_button_class(@workbench_tab == :interact)}
+              >
+                Interact
+              </button>
+              <button
+                type="button"
+                phx-click="select_workbench_tab"
+                phx-value-panel="messages"
+                class={workbench_tab_button_class(@workbench_tab == :messages)}
+              >
+                Messages
+              </button>
+              <button
+                type="button"
+                phx-click="select_workbench_tab"
+                phx-value-panel="events"
+                class={workbench_tab_button_class(@workbench_tab == :events)}
+              >
+                Events
+              </button>
+              <button
+                type="button"
+                phx-click="select_workbench_tab"
+                phx-value-panel="todos"
+                class={workbench_tab_button_class(@workbench_tab == :todos)}
+              >
+                TODOs
               </button>
               <button
                 type="button"
@@ -1179,6 +1794,474 @@ defmodule JidoStudio.AgentsLive do
           </div>
 
           <%= case @workbench_tab do %>
+            <% :interact -> %>
+              <.card class="min-h-0 h-full overflow-hidden p-0">
+                <div class="px-3 py-2 border-b border-js-border">
+                  <h3 class="text-sm font-medium text-js-text">Interact</h3>
+                  <p class="text-xs text-js-text-muted mt-1">
+                    Signal and action introspection with guarded runtime dispatch.
+                  </p>
+                </div>
+                <div class="p-3 overflow-y-auto overflow-x-hidden js-scroll space-y-3 flex-1 min-h-0">
+                  <%= if @interaction_model.warnings != [] do %>
+                    <div class="rounded-md border border-js-warning/40 bg-js-warning/10 p-2 space-y-1">
+                      <p class="text-xs text-js-warning font-medium">Introspection warnings</p>
+                      <p
+                        :for={warning <- @interaction_model.warnings}
+                        class="text-[11px] text-js-warning/90"
+                      >
+                        {warning}
+                      </p>
+                    </div>
+                  <% end %>
+
+                  <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                    <div class="space-y-2">
+                      <div class="flex items-center justify-between gap-2">
+                        <h4 class="text-xs uppercase tracking-wider text-js-text-subtle">
+                          Consumed Signals
+                        </h4>
+                        <button
+                          type="button"
+                          phx-click="toggle_advanced_signals"
+                          class="text-xs text-js-info hover:text-js-text"
+                        >
+                          {if(@show_advanced_signals?, do: "Hide advanced", else: "Show advanced")}
+                        </button>
+                      </div>
+                      <%= if @interaction_signals == [] do %>
+                        <.empty_state
+                          title="No signal routes"
+                          description="No runtime or static signal routes were discovered."
+                        />
+                      <% else %>
+                        <div class="space-y-1.5">
+                          <div
+                            :for={signal <- @interaction_signals}
+                            class={[
+                              "rounded-md border px-2 py-2 bg-js-bg-elevated/30",
+                              if(@selected_runner_target == {:signal, signal.key},
+                                do: "border-js-info/60",
+                                else: "border-js-border"
+                              )
+                            ]}
+                          >
+                            <div class="flex items-center justify-between gap-2">
+                              <div class="text-xs font-mono text-js-text break-all">
+                                {signal.signal_type}
+                              </div>
+                              <div class="flex items-center gap-1">
+                                <.badge variant={
+                                  if(signal.route_available?, do: :success, else: :warning)
+                                }>
+                                  {if(signal.route_available?, do: "runtime", else: "static")}
+                                </.badge>
+                                <.badge variant={if(signal.advanced?, do: :default, else: :info)}>
+                                  {if(signal.advanced?, do: "advanced", else: "entry")}
+                                </.badge>
+                              </div>
+                            </div>
+                            <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
+                              src: {signal.source} / priority: {signal.priority} / target: {signal.target_summary}
+                            </div>
+                            <div
+                              :if={is_integer(signal.last_seen_at)}
+                              class="mt-1 text-[11px] text-js-text-subtle"
+                            >
+                              last seen:
+                              <time data-js-ts={signal.last_seen_at} data-js-relative="true">
+                                {format_event_timestamp(signal.last_seen_at)}
+                              </time>
+                            </div>
+                            <button
+                              type="button"
+                              phx-click="select_signal"
+                              phx-value-key={signal.key}
+                              class="mt-2 inline-flex rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text"
+                            >
+                              Use Signal
+                            </button>
+                          </div>
+                        </div>
+                      <% end %>
+                    </div>
+
+                    <div class="space-y-2">
+                      <h4 class="text-xs uppercase tracking-wider text-js-text-subtle">
+                        Action Schemas
+                      </h4>
+                      <%= if @interaction_actions == [] do %>
+                        <.empty_state
+                          title="No action schemas"
+                          description="No route or plugin actions were discovered."
+                        />
+                      <% else %>
+                        <div class="space-y-1.5">
+                          <div
+                            :for={action <- @interaction_actions}
+                            class={[
+                              "rounded-md border px-2 py-2 bg-js-bg-elevated/30",
+                              if(@selected_runner_target == {:action, action.key},
+                                do: "border-js-info/60",
+                                else: "border-js-border"
+                              )
+                            ]}
+                          >
+                            <div class="flex items-center justify-between gap-2">
+                              <div class="text-xs text-js-text font-mono break-all">
+                                {action.label}
+                              </div>
+                              <.badge variant={
+                                if(action.convertible_schema?, do: :success, else: :warning)
+                              }>
+                                {if(action.convertible_schema?, do: "schema ok", else: "raw fallback")}
+                              </.badge>
+                            </div>
+                            <p
+                              :if={is_binary(action.doc)}
+                              class="mt-1 text-[11px] text-js-text-subtle"
+                            >
+                              {action.doc}
+                            </p>
+                            <div class="mt-1 text-[11px] text-js-text-subtle">
+                              required: {if(action.required_fields == [],
+                                do: "none",
+                                else: Enum.join(action.required_fields, ", ")
+                              )}
+                            </div>
+                            <div
+                              :if={action.schema_error}
+                              class="mt-1 text-[11px] text-js-warning"
+                            >
+                              {action.schema_error}
+                            </div>
+                            <button
+                              type="button"
+                              phx-click="select_action"
+                              phx-value-key={action.key}
+                              class="mt-2 inline-flex rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text"
+                            >
+                              Use Action
+                            </button>
+                          </div>
+                        </div>
+                      <% end %>
+                    </div>
+                  </div>
+
+                  <div class="rounded-md border border-js-border bg-js-bg-elevated/20 p-3 space-y-2">
+                    <div class="flex items-center justify-between gap-2">
+                      <h4 class="text-xs uppercase tracking-wider text-js-text-subtle">Runner</h4>
+                      <.badge variant={
+                        if(@interaction_model.dispatch_available?, do: :success, else: :warning)
+                      }>
+                        {if(@interaction_model.dispatch_available?,
+                          do: "instance online",
+                          else: "instance offline"
+                        )}
+                      </.badge>
+                    </div>
+                    <div class="text-xs text-js-text-muted">
+                      Selected:
+                      <span class="font-mono text-js-text">
+                        <%= case @selected_runner_target do %>
+                          <% {:signal, key} -> %>
+                            signal {key}
+                          <% {:action, key} -> %>
+                            action {key}
+                          <% _ -> %>
+                            none
+                        <% end %>
+                      </span>
+                    </div>
+
+                    <form phx-change="update_runner_payload" class="space-y-2">
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <label class="text-xs text-js-text-muted">
+                          Dispatch Mode
+                          <select
+                            name="runner[dispatch_mode]"
+                            class="mt-1 w-full rounded-md border border-js-border bg-js-bg px-2 py-1.5 text-xs text-js-text"
+                          >
+                            <option value="sync" selected={@runner_form.dispatch_mode == "sync"}>
+                              sync
+                            </option>
+                            <option value="async" selected={@runner_form.dispatch_mode == "async"}>
+                              async
+                            </option>
+                          </select>
+                        </label>
+                        <label class="text-xs text-js-text-muted">
+                          Schema View
+                          <select
+                            name="runner[schema_mode]"
+                            class="mt-1 w-full rounded-md border border-js-border bg-js-bg px-2 py-1.5 text-xs text-js-text"
+                          >
+                            <option value="fields" selected={@runner_form.schema_mode == "fields"}>
+                              fields
+                            </option>
+                            <option value="raw" selected={@runner_form.schema_mode == "raw"}>
+                              raw
+                            </option>
+                          </select>
+                        </label>
+                      </div>
+                      <label class="text-xs text-js-text-muted block">
+                        Payload JSON <textarea
+                          name="runner[payload_json]"
+                          rows="8"
+                          class="mt-1 w-full rounded-md border border-js-border bg-js-bg p-2 text-xs text-js-text font-mono"
+                        ><%= @runner_form.payload_json %></textarea>
+                      </label>
+                    </form>
+
+                    <div class="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        phx-click="arm_runner_execute"
+                        class={
+                          if(@runner_form.guard_armed?,
+                            do:
+                              "inline-flex rounded-md border border-js-success/40 bg-js-success/10 px-2.5 py-1 text-xs text-js-success",
+                            else:
+                              "inline-flex rounded-md border border-js-border px-2.5 py-1 text-xs text-js-text-muted hover:text-js-text"
+                          )
+                        }
+                      >
+                        {if(@runner_form.guard_armed?, do: "Armed", else: "Arm Execute")}
+                      </button>
+                      <button
+                        type="button"
+                        phx-click="run_selected_interaction"
+                        disabled={!RunnerForm.can_execute?(@runner_form)}
+                        class="inline-flex rounded-md border border-js-border px-2.5 py-1 text-xs text-js-text-muted hover:text-js-text disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Run
+                      </button>
+                      <button
+                        type="button"
+                        phx-click="clear_runner_history"
+                        class="inline-flex rounded-md border border-js-border px-2.5 py-1 text-xs text-js-text-muted hover:text-js-text"
+                      >
+                        Clear History
+                      </button>
+                    </div>
+
+                    <pre
+                      :if={@runner_result}
+                      class="text-[11px] text-js-text-muted bg-js-bg border border-js-border rounded-md p-2 whitespace-pre-wrap break-words overflow-x-auto"
+                    ><%= inspect(@runner_result, pretty: true, limit: 120, printable_limit: 20_000) %></pre>
+
+                    <%= if @runner_history != [] do %>
+                      <div class="space-y-1.5">
+                        <p class="text-[11px] uppercase tracking-wider text-js-text-subtle">
+                          Recent Runs
+                        </p>
+                        <div
+                          :for={entry <- @runner_history}
+                          class="rounded border border-js-border bg-js-bg/60 px-2 py-1.5 text-[11px] text-js-text-subtle font-mono"
+                        >
+                          <span>{entry[:mode]} {entry[:signal_type]}</span>
+                          <span class="mx-1">/</span>
+                          <time data-js-ts={entry[:timestamp_ms]} data-js-relative="true">
+                            {format_event_timestamp(entry[:timestamp_ms])}
+                          </time>
+                        </div>
+                      </div>
+                    <% end %>
+                  </div>
+                </div>
+              </.card>
+            <% :messages -> %>
+              <.card class="min-h-0 h-full overflow-hidden p-0">
+                <div class="px-3 py-2 border-b border-js-border">
+                  <h3 class="text-sm font-medium text-js-text">Messages</h3>
+                  <p class="text-xs text-js-text-muted mt-1">
+                    Normalized runtime thread messages including tool calls and thinking blocks.
+                  </p>
+                </div>
+                <div class="p-3 overflow-y-auto overflow-x-hidden js-scroll space-y-2.5 flex-1 min-h-0">
+                  <%= if @runtime_messages == [] do %>
+                    <.empty_state
+                      title="No runtime messages"
+                      description="Send a message or run strategy steps to capture a thread snapshot."
+                    />
+                  <% else %>
+                    <div
+                      :for={message <- @runtime_messages}
+                      class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2.5 py-2"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-xs font-medium text-js-text">
+                          {message[:role] || :unknown}
+                        </span>
+                        <.badge variant={
+                          if(message[:status] in ["error", :error], do: :error, else: :default)
+                        }>
+                          {message[:status] || "ok"}
+                        </.badge>
+                      </div>
+                      <div class="mt-1 text-xs text-js-text-muted whitespace-pre-wrap break-words">
+                        <%= case message[:content] do %>
+                          <% content when is_binary(content) -> %>
+                            {content}
+                          <% content when is_list(content) -> %>
+                            <div :for={part <- content} class="mb-1">
+                              <span
+                                :if={part[:type] == :thinking}
+                                class="inline-flex rounded bg-js-info/10 px-1.5 py-0.5 text-[11px] text-js-info mr-1"
+                              >
+                                thinking
+                              </span>
+                              <span>{part[:content] || inspect(part[:data], limit: 40)}</span>
+                            </div>
+                          <% other -> %>
+                            {inspect(other, pretty: true, limit: 40)}
+                        <% end %>
+                      </div>
+                      <div :if={message[:tool_calls] != []} class="mt-2 space-y-1">
+                        <div class="text-[11px] uppercase tracking-wider text-js-text-subtle">
+                          Tool Calls
+                        </div>
+                        <div
+                          :for={call <- message[:tool_calls]}
+                          class="text-xs text-js-text-subtle font-mono"
+                        >
+                          {call[:name]} ({call[:call_id]})
+                        </div>
+                      </div>
+                      <div :if={message[:tool_results] != []} class="mt-2 space-y-1">
+                        <div class="text-[11px] uppercase tracking-wider text-js-text-subtle">
+                          Tool Results
+                        </div>
+                        <div
+                          :for={result <- message[:tool_results]}
+                          class="text-xs text-js-text-subtle font-mono"
+                        >
+                          {result[:name]} [{result[:status] || "ok"}]
+                        </div>
+                      </div>
+                    </div>
+                  <% end %>
+                </div>
+              </.card>
+            <% :events -> %>
+              <.card class="min-h-0 h-full overflow-hidden p-0">
+                <div class="px-3 py-2 border-b border-js-border flex items-center justify-between gap-2">
+                  <div>
+                    <h3 class="text-sm font-medium text-js-text">Events</h3>
+                    <p class="text-xs text-js-text-muted mt-1">
+                      Merged event stream with expandable raw telemetry payloads.
+                    </p>
+                  </div>
+                  <.link
+                    :if={@traces_path}
+                    navigate={@traces_path}
+                    class="text-xs text-js-info hover:text-js-text transition-colors"
+                  >
+                    Open Traces
+                  </.link>
+                </div>
+                <div class="p-3 overflow-y-auto overflow-x-hidden js-scroll space-y-2.5 flex-1 min-h-0">
+                  <form phx-change="update_instance_event_query" class="mb-2">
+                    <input
+                      type="text"
+                      name="query"
+                      value={@instance_event_query}
+                      placeholder="Search merged events"
+                      class="w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text focus:outline-none focus:ring-2 focus:ring-js-ring"
+                    />
+                  </form>
+                  <%= if @instance_events == [] do %>
+                    <.empty_state
+                      title="No merged events"
+                      description="Run an interaction to populate event telemetry."
+                    />
+                  <% else %>
+                    <div
+                      :for={event <- @instance_events}
+                      class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2.5 py-2"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <time
+                          class="text-[11px] font-mono text-js-text-subtle"
+                          data-js-ts={event[:timestamp_ms]}
+                          data-js-relative="true"
+                        >
+                          {format_event_timestamp(event[:timestamp_ms])}
+                        </time>
+                        <div class="flex items-center gap-1">
+                          <.badge variant={
+                            if(event[:source] == :agent_debug, do: :warning, else: :info)
+                          }>
+                            {event[:source] || :telemetry}
+                          </.badge>
+                          <.badge :if={(event[:chunk_count] || 1) > 1} variant={:default}>
+                            {event[:chunk_count]} chunks
+                          </.badge>
+                        </div>
+                      </div>
+                      <div class="mt-1 text-xs text-js-text font-mono break-all">
+                        {format_event_name(event)}
+                      </div>
+                      <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
+                        call: {event[:call_id] || "n/a"} / task: {event[:task_id] || "n/a"}
+                      </div>
+                      <button
+                        type="button"
+                        phx-click="toggle_event_row"
+                        phx-value-id={event[:id]}
+                        class="mt-2 text-xs text-js-info hover:text-js-text transition-colors"
+                      >
+                        <%= if MapSet.member?(@expanded_event_ids, event[:id]) do %>
+                          Hide Raw
+                        <% else %>
+                          Show Raw
+                        <% end %>
+                      </button>
+                      <pre
+                        :if={MapSet.member?(@expanded_event_ids, event[:id])}
+                        class="mt-2 text-[11px] text-js-text-muted bg-js-bg border border-js-border rounded-md p-2 whitespace-pre-wrap break-words overflow-x-auto"
+                      ><%= inspect(event[:raw] || event, pretty: true, limit: 120, printable_limit: 20_000) %></pre>
+                    </div>
+                  <% end %>
+                </div>
+              </.card>
+            <% :todos -> %>
+              <.card class="min-h-0 h-full overflow-hidden p-0">
+                <div class="px-3 py-2 border-b border-js-border">
+                  <h3 class="text-sm font-medium text-js-text">TODOs</h3>
+                  <p class="text-xs text-js-text-muted mt-1">
+                    Strategy TODO list with fallback to tracked tasks.
+                  </p>
+                </div>
+                <div class="p-3 overflow-y-auto overflow-x-hidden js-scroll space-y-2.5 flex-1 min-h-0">
+                  <%= if @runtime_todos == [] do %>
+                    <.empty_state
+                      title="No TODOs"
+                      description="No strategy TODO state was found for this instance."
+                    />
+                  <% else %>
+                    <div
+                      :for={todo <- @runtime_todos}
+                      class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2.5 py-2"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-xs text-js-text">{todo[:content]}</span>
+                        <.badge variant={todo_badge_variant(todo[:status])}>
+                          {todo[:status] || :pending}
+                        </.badge>
+                      </div>
+                      <div
+                        :if={todo[:active_form]}
+                        class="mt-1 text-[11px] text-js-text-subtle font-mono"
+                      >
+                        active_form: {todo[:active_form]}
+                      </div>
+                    </div>
+                  <% end %>
+                </div>
+              </.card>
             <% :thread_context -> %>
               <.card class="min-h-0 h-full overflow-hidden p-0">
                 <div class="px-3 py-2 border-b border-js-border">
@@ -1242,9 +2325,13 @@ defmodule JidoStudio.AgentsLive do
                       class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2.5 py-2"
                     >
                       <div class="flex items-center justify-between gap-2">
-                        <span class="text-[11px] font-mono text-js-text-subtle">
+                        <time
+                          class="text-[11px] font-mono text-js-text-subtle"
+                          data-js-ts={event[:timestamp_ms]}
+                          data-js-relative="true"
+                        >
                           {format_event_timestamp(event[:timestamp_ms])}
-                        </span>
+                        </time>
                         <.badge variant={
                           if(event[:source] == :agent_debug, do: :warning, else: :info)
                         }>
@@ -1296,11 +2383,124 @@ defmodule JidoStudio.AgentsLive do
                       class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2.5 py-2"
                     >
                       <div class="flex items-center justify-between gap-2">
-                        <span class="text-xs text-js-text font-mono">{sub.agent_id}</span>
-                        <.badge variant={:info}>{sub.status || "running"}</.badge>
+                        <div class="min-w-0">
+                          <span class="text-xs text-js-text font-mono break-all">{sub.agent_id}</span>
+                          <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
+                            parent: {sub.parent_agent_id}
+                          </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <.badge variant={
+                            if(sub.status in ["error", :error], do: :error, else: :info)
+                          }>
+                            {sub.status || "running"}
+                          </.badge>
+                          <button
+                            type="button"
+                            phx-click="toggle_subagent_row"
+                            phx-value-id={sub.agent_id}
+                            class="text-xs text-js-info hover:text-js-text transition-colors"
+                          >
+                            <%= if @expanded_subagent_id == sub.agent_id do %>
+                              Collapse
+                            <% else %>
+                              Expand
+                            <% end %>
+                          </button>
+                        </div>
                       </div>
-                      <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
-                        parent: {sub.parent_agent_id}
+
+                      <div
+                        :if={@expanded_subagent_id == sub.agent_id}
+                        class="mt-3 border-t border-js-border pt-2.5 space-y-2"
+                      >
+                        <div class="inline-flex gap-1 rounded-md border border-js-border bg-js-bg px-1 py-1">
+                          <button
+                            :for={tab <- ["config", "messages", "middleware", "tools", "events"]}
+                            type="button"
+                            phx-click="select_subagent_detail_tab"
+                            phx-value-tab={tab}
+                            class={[
+                              "rounded px-2 py-1 text-[11px] transition-colors",
+                              if(@subagent_detail_tab == tab,
+                                do: "bg-js-muted text-js-text",
+                                else: "text-js-text-muted hover:text-js-text"
+                              )
+                            ]}
+                          >
+                            {String.capitalize(tab)}
+                          </button>
+                        </div>
+
+                        <%= case @subagent_detail_tab do %>
+                          <% "messages" -> %>
+                            <pre class="text-[11px] text-js-text-muted bg-js-bg border border-js-border rounded-md p-2 whitespace-pre-wrap break-words overflow-x-auto"><%= inspect(sub[:messages] || [], pretty: true, limit: 120, printable_limit: 20_000) %></pre>
+                          <% "middleware" -> %>
+                            <pre class="text-[11px] text-js-text-muted bg-js-bg border border-js-border rounded-md p-2 whitespace-pre-wrap break-words overflow-x-auto"><%= inspect(sub[:middleware] || [], pretty: true, limit: 120, printable_limit: 20_000) %></pre>
+                          <% "tools" -> %>
+                            <pre class="text-[11px] text-js-text-muted bg-js-bg border border-js-border rounded-md p-2 whitespace-pre-wrap break-words overflow-x-auto"><%= inspect(sub[:tools] || [], pretty: true, limit: 120, printable_limit: 20_000) %></pre>
+                          <% "events" -> %>
+                            <%= if Map.get(@subagent_events, sub.agent_id, []) == [] do %>
+                              <p class="text-xs text-js-text-subtle">
+                                No trace events available for this sub-agent.
+                              </p>
+                            <% else %>
+                              <div class="space-y-1">
+                                <div
+                                  :for={event <- Map.get(@subagent_events, sub.agent_id, [])}
+                                  class="rounded border border-js-border bg-js-bg/70 px-2 py-1.5"
+                                >
+                                  <div class="flex items-center justify-between gap-2">
+                                    <time
+                                      class="text-[11px] font-mono text-js-text-subtle"
+                                      data-js-ts={event[:timestamp_ms]}
+                                      data-js-relative="true"
+                                    >
+                                      {format_event_timestamp(event[:timestamp_ms])}
+                                    </time>
+                                    <.badge variant={:default}>{event[:type] || "event"}</.badge>
+                                  </div>
+                                  <div class="mt-1 text-[11px] font-mono text-js-text break-all">
+                                    {event[:event_name] || format_event_name(event)}
+                                  </div>
+                                </div>
+                              </div>
+                            <% end %>
+                          <% _ -> %>
+                            <div class="space-y-1 text-[11px] text-js-text-muted">
+                              <div>
+                                <span class="text-js-text-subtle">name:</span> {sub[:name] || "n/a"}
+                              </div>
+                              <div>
+                                <span class="text-js-text-subtle">model:</span> {sub[:model] || "n/a"}
+                              </div>
+                              <div>
+                                <span class="text-js-text-subtle">duration:</span> {sub[:duration_ms] ||
+                                  0}ms
+                              </div>
+                              <div>
+                                <span class="text-js-text-subtle">updated:</span>
+                                <time data-js-ts={sub[:updated_at]} data-js-relative="true">
+                                  {format_event_timestamp(sub[:updated_at])}
+                                </time>
+                              </div>
+                              <div>
+                                <span class="text-js-text-subtle">result:</span> {sub[:result] ||
+                                  "n/a"}
+                              </div>
+                              <div :if={sub[:error]}>
+                                <span class="text-js-text-subtle">error:</span> {inspect(sub[:error],
+                                  limit: 40
+                                )}
+                              </div>
+                              <div :if={is_map(sub[:token_usage])}>
+                                <span class="text-js-text-subtle">token_usage:</span> {inspect(
+                                  sub[:token_usage],
+                                  limit: 20
+                                )}
+                              </div>
+                            </div>
+                        <% end %>
                       </div>
                     </div>
                   <% end %>
@@ -1368,6 +2568,33 @@ defmodule JidoStudio.AgentsLive do
                       <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
                         calls: {run.call_count || 0} / failures: {run.failure_count || 0}
                       </div>
+                      <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
+                        last: {run.last_status || "n/a"} / duration: {run.last_duration_ms || 0}ms
+                      </div>
+                      <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
+                        action: {run.action || "n/a"} / workflow: {run.workflow_id || "n/a"}
+                      </div>
+                      <.link
+                        :if={
+                          tool_trace_path(
+                            @traces_path,
+                            @active_instance_id,
+                            run.call_id,
+                            run.trace_id
+                          )
+                        }
+                        navigate={
+                          tool_trace_path(
+                            @traces_path,
+                            @active_instance_id,
+                            run.call_id,
+                            run.trace_id
+                          )
+                        }
+                        class="mt-1 inline-flex text-[11px] text-js-info hover:text-js-text"
+                      >
+                        Open Trace
+                      </.link>
                     </div>
                   <% end %>
                 </div>
@@ -1400,28 +2627,61 @@ defmodule JidoStudio.AgentsLive do
                       <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
                         {Enum.join(snapshot.middleware_chain || [], " -> ")}
                       </div>
+                      <div class="mt-1 text-[11px] text-js-text-subtle font-mono">
+                        invoked:
+                        <time
+                          data-js-ts={snapshot.last_invoked_at || snapshot.updated_at}
+                          data-js-relative="true"
+                        >
+                          {format_event_timestamp(snapshot.last_invoked_at || snapshot.updated_at)}
+                        </time>
+                      </div>
+                      <pre
+                        :if={
+                          is_map(snapshot.config_snapshot) and map_size(snapshot.config_snapshot) > 0
+                        }
+                        class="mt-1 text-[11px] text-js-text-muted bg-js-bg border border-js-border rounded-md p-2 whitespace-pre-wrap break-words overflow-x-auto"
+                      ><%= inspect(snapshot.config_snapshot, pretty: true, limit: 60) %></pre>
                     </div>
                   <% end %>
                 </div>
               </.card>
             <% _ -> %>
-              <.chat_conversation_panel
-                class="min-h-0 h-full"
-                thread_name={@active_thread_name}
-                draft_message={@draft_message}
-                active_messages={@active_messages}
-                chat_pending?={@chat_pending?}
-                chat_enabled?={@chat_enabled?}
-                placeholder={@chat_config.placeholder}
-                empty_title={@chat_config.empty_title}
-                empty_description={@chat_config.empty_description}
-                model_label={@chat_config.model_label || @ui_model}
-                provider_options={@chat_provider_options}
-                provider_value={@chat_provider}
-                model_options={@chat_model_options}
-                model_value={@chat_model}
-                traces_path={@traces_path}
-              />
+              <div class="min-h-0 h-full flex flex-col gap-2">
+                <div
+                  :if={not @chat_enabled? and @interaction_model.runner_supported?}
+                  class="rounded-md border border-js-info/40 bg-js-info/10 px-3 py-2 text-xs text-js-info flex items-center justify-between gap-2"
+                >
+                  <span>
+                    This instance does not expose chat. Use signal/action interaction instead.
+                  </span>
+                  <button
+                    type="button"
+                    phx-click="select_workbench_tab"
+                    phx-value-panel="interact"
+                    class="inline-flex rounded-md border border-js-info/50 px-2 py-1 text-[11px] hover:text-js-text"
+                  >
+                    Open Interact
+                  </button>
+                </div>
+                <.chat_conversation_panel
+                  class="min-h-0 h-full"
+                  thread_name={@active_thread_name}
+                  draft_message={@draft_message}
+                  active_messages={@active_messages}
+                  chat_pending?={@chat_pending?}
+                  chat_enabled?={@chat_enabled?}
+                  placeholder={@chat_config.placeholder}
+                  empty_title={@chat_config.empty_title}
+                  empty_description={@chat_config.empty_description}
+                  model_label={@chat_config.model_label || @ui_model}
+                  provider_options={@chat_provider_options}
+                  provider_value={@chat_provider}
+                  model_options={@chat_model_options}
+                  model_value={@chat_model}
+                  traces_path={@traces_path}
+                />
+              </div>
           <% end %>
         </div>
 
@@ -1438,6 +2698,7 @@ defmodule JidoStudio.AgentsLive do
           traces_path={@traces_path}
           summary_meta={@summary_meta}
           instance_observability_events={@instance_observability_events}
+          triage_links={@triage_links}
         />
       </div>
     </div>
@@ -1466,6 +2727,15 @@ defmodule JidoStudio.AgentsLive do
           to enable runtime agent management.
         </p>
       </div>
+
+      <form phx-change="set_timezone" class="hidden" data-js-timezone-form>
+        <input
+          type="hidden"
+          name="timezone"
+          value={@user_timezone}
+          data-js-timezone-input
+        />
+      </form>
 
       <.card>
         <div class="flex items-center justify-between gap-3 mb-3">
@@ -1506,18 +2776,275 @@ defmodule JidoStudio.AgentsLive do
             />
           </label>
         </form>
+
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            phx-click="toggle_auto_follow_instances"
+            class={
+              if(@auto_follow_instances?,
+                do:
+                  "inline-flex rounded-md border border-js-success/40 bg-js-success/10 px-2.5 py-1 text-xs text-js-success",
+                else:
+                  "inline-flex rounded-md border border-js-border px-2.5 py-1 text-xs text-js-text-muted hover:text-js-text"
+              )
+            }
+          >
+            Auto-follow {if(@auto_follow_instances?, do: "on", else: "off")}
+          </button>
+          <.badge :if={@followed_instance_id} variant={:info}>
+            Following: {short_instance_id(@followed_instance_id)}
+          </.badge>
+          <button
+            :if={@followed_instance_id}
+            type="button"
+            phx-click="unfollow_instance"
+            class="inline-flex rounded-md border border-js-border px-2.5 py-1 text-xs text-js-text-muted hover:text-js-text"
+          >
+            Unfollow
+          </button>
+        </div>
+
+        <form
+          phx-change="update_auto_follow_target"
+          class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2"
+        >
+          <label class="text-xs text-js-text-muted">
+            Auto-follow Instance
+            <input
+              type="text"
+              name="target[instance_id]"
+              value={@auto_follow_target.instance_id || ""}
+              placeholder="instance id"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+          <label class="text-xs text-js-text-muted">
+            Auto-follow Project
+            <input
+              type="text"
+              name="target[project_id]"
+              value={@auto_follow_target.project_id || ""}
+              placeholder="project id"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+          <label class="text-xs text-js-text-muted">
+            Auto-follow User
+            <input
+              type="text"
+              name="target[user_id]"
+              value={@auto_follow_target.user_id || ""}
+              placeholder="user id"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+        </form>
       </.card>
 
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <.stat_card label="Discovered Agents" value={to_string(length(@agents))} />
         <.stat_card label="Running" value={to_string(@running_count)} />
+        <.stat_card label="Active Instances" value={to_string(length(@filtered_instances || []))} />
         <.stat_card
           label="Available"
           value={to_string(Enum.count(@agents, &(&1.status == :available)))}
         />
       </div>
 
-      <%= if @agents == [] do %>
+      <.card>
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <h3 class="text-sm font-medium text-js-text">Active Instances</h3>
+          <.badge variant={if(@live_ops_presence?, do: :success, else: :warning)}>
+            {if(@live_ops_presence?, do: "presence viewers", else: "viewer fallback: 0")}
+          </.badge>
+        </div>
+
+        <form phx-change="update_instance_filters" class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-3">
+          <label class="text-xs text-js-text-muted">
+            Status
+            <select
+              name="filters[status_filter]"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            >
+              <option value="all" selected={@agent_filters.status_filter == "all"}>All</option>
+              <option value="running" selected={@agent_filters.status_filter == "running"}>
+                Running
+              </option>
+              <option value="idle" selected={@agent_filters.status_filter == "idle"}>Idle</option>
+              <option value="interrupted" selected={@agent_filters.status_filter == "interrupted"}>
+                Interrupted
+              </option>
+              <option value="error" selected={@agent_filters.status_filter == "error"}>Error</option>
+              <option value="offline" selected={@agent_filters.status_filter == "offline"}>
+                Offline
+              </option>
+            </select>
+          </label>
+          <label class="text-xs text-js-text-muted">
+            Presence
+            <select
+              name="filters[presence_filter]"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            >
+              <option value="all" selected={@agent_filters.presence_filter == "all"}>All</option>
+              <option value="has_viewers" selected={@agent_filters.presence_filter == "has_viewers"}>
+                Has Viewers
+              </option>
+              <option value="no_viewers" selected={@agent_filters.presence_filter == "no_viewers"}>
+                No Viewers
+              </option>
+            </select>
+          </label>
+          <label class="text-xs text-js-text-muted">
+            Search
+            <input
+              type="text"
+              name="filters[search_query]"
+              value={@agent_filters.search_query}
+              placeholder="instance, agent, scope"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+          <label class="text-xs text-js-text-muted">
+            Sort
+            <select
+              name="filters[sort_by]"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            >
+              <option value="last_activity" selected={@agent_filters.sort_by == "last_activity"}>
+                Last Activity
+              </option>
+              <option value="viewers" selected={@agent_filters.sort_by == "viewers"}>Viewers</option>
+              <option value="uptime" selected={@agent_filters.sort_by == "uptime"}>Uptime</option>
+              <option value="name" selected={@agent_filters.sort_by == "name"}>Name</option>
+              <option value="status" selected={@agent_filters.sort_by == "status"}>Status</option>
+            </select>
+          </label>
+        </form>
+
+        <%= if @filtered_instances == [] do %>
+          <.empty_state
+            title="No active instances"
+            description="No running instances match your scope and filter settings."
+          />
+        <% else %>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead>
+                <tr class="bg-js-bg-surface border-b border-js-border">
+                  <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
+                    Instance
+                  </th>
+                  <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
+                    Agent
+                  </th>
+                  <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
+                    Status
+                  </th>
+                  <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
+                    Last Activity
+                  </th>
+                  <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
+                    Uptime
+                  </th>
+                  <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
+                    Viewers
+                  </th>
+                  <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
+                    Scope
+                  </th>
+                  <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-js-text-muted">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-js-border">
+                <tr
+                  :for={row <- @filtered_instances}
+                  class="hover:bg-js-bg-elevated/40 transition-colors"
+                >
+                  <td class="px-3 py-2 text-xs text-js-text font-mono">
+                    <span :if={@followed_instance_id == row.instance_id} class="text-js-success mr-1">
+                      ●
+                    </span>
+                    {short_instance_id(row.instance_id)}
+                  </td>
+                  <td class="px-3 py-2 text-xs text-js-text">
+                    <div class="flex items-center gap-1.5">
+                      <.link
+                        :if={active_instance_path(@prefix, row)}
+                        navigate={active_instance_path(@prefix, row)}
+                        class="hover:text-js-primary transition-colors"
+                      >
+                        {humanize_agent_name(row.agent_name || row.agent_slug || "Agent")}
+                      </.link>
+                      <span :if={is_nil(active_instance_path(@prefix, row))}>
+                        {humanize_agent_name(row.agent_name || row.agent_slug || "Agent")}
+                      </span>
+                      <.badge :if={internal_instance?(row)} variant={:warning}>
+                        internal
+                      </.badge>
+                    </div>
+                  </td>
+                  <td class="px-3 py-2 text-xs">
+                    <.badge variant={status_badge_variant(row.status)}>{row.status}</.badge>
+                  </td>
+                  <td class="px-3 py-2 text-xs text-js-text-muted">
+                    <time
+                      data-js-ts={datetime_to_unix_ms(row.last_activity_at)}
+                      data-js-relative={
+                        if(datetime_to_unix_ms(row.last_activity_at), do: "true", else: "false")
+                      }
+                    >
+                      {format_datetime(row.last_activity_at)}
+                    </time>
+                  </td>
+                  <td class="px-3 py-2 text-xs text-js-text-muted">
+                    <span data-js-uptime-ms={row.uptime_ms || ""}>
+                      {format_uptime(row.uptime_ms)}
+                    </span>
+                  </td>
+                  <td class="px-3 py-2 text-xs text-js-text">{row.viewer_count || 0}</td>
+                  <td class="px-3 py-2 text-xs text-js-text-muted font-mono">
+                    {row.project_id || "n/a"} / {row.user_id || "n/a"}
+                  </td>
+                  <td class="px-3 py-2 text-xs">
+                    <div class="flex items-center gap-1">
+                      <button
+                        :if={@followed_instance_id != row.instance_id}
+                        type="button"
+                        phx-click="follow_instance"
+                        phx-value-id={row.instance_id}
+                        class="inline-flex rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text"
+                      >
+                        Follow
+                      </button>
+                      <button
+                        :if={@followed_instance_id == row.instance_id}
+                        type="button"
+                        phx-click="unfollow_instance"
+                        class="inline-flex rounded-md border border-js-success/40 bg-js-success/10 px-2 py-1 text-[11px] text-js-success"
+                      >
+                        Following
+                      </button>
+                      <.link
+                        :if={active_instance_path(@prefix, row)}
+                        navigate={active_instance_path(@prefix, row)}
+                        class="inline-flex rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text"
+                      >
+                        Open
+                      </.link>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        <% end %>
+      </.card>
+
+      <%= if @product_agents == [] and @internal_agents == [] do %>
         <.card>
           <.empty_state
             title="No agents discovered"
@@ -1526,10 +3053,14 @@ defmodule JidoStudio.AgentsLive do
         </.card>
       <% else %>
         <.card>
-          <.data_table rows={@agents} scroll_x={false}>
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <h3 class="text-sm font-medium text-js-text">Product Agents</h3>
+            <.badge variant={:default}>{length(@product_agents)}</.badge>
+          </div>
+          <.data_table rows={@product_agents} scroll_x={false}>
             <:col :let={agent} label="Name">
               <.link
-                navigate={"#{@prefix}/agents/#{agent.slug}"}
+                navigate={agent_module_path(@prefix, agent)}
                 class="text-js-text font-medium hover:text-js-primary transition-colors"
               >
                 {humanize_agent_name(agent.name)}
@@ -1552,462 +3083,42 @@ defmodule JidoStudio.AgentsLive do
             </:col>
           </.data_table>
         </.card>
+
+        <.card :if={@internal_agents != []}>
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <h3 class="text-sm font-medium text-js-text">Internal Agents</h3>
+            <.badge variant={:warning}>{length(@internal_agents)}</.badge>
+          </div>
+          <.data_table rows={@internal_agents} scroll_x={false}>
+            <:col :let={agent} label="Name">
+              <.link
+                navigate={agent_module_path(@prefix, agent)}
+                class="text-js-text font-medium hover:text-js-primary transition-colors"
+              >
+                {humanize_agent_name(agent.name)}
+              </.link>
+            </:col>
+            <:col :let={agent} label="Description">
+              <span class="text-xs text-js-text-muted truncate max-w-md block">
+                {agent.description}
+              </span>
+            </:col>
+            <:col :let={agent} label="Tags">
+              <div class="flex flex-wrap gap-1">
+                <.badge :for={tag <- agent.tags || []} variant={:warning}>{tag}</.badge>
+              </div>
+            </:col>
+            <:col :let={agent} label="Running Instances">
+              <span class="text-xs text-js-text-subtle">
+                {length(agent.running_instances || [])}
+              </span>
+            </:col>
+          </.data_table>
+        </.card>
       <% end %>
     </div>
     """
   end
-
-  attr :agent, :map, required: true
-  attr :module_path, :string, required: true
-  attr :instance_links, :list, required: true
-  attr :active_instance_id, :string, default: nil
-  attr :traces_path, :string, default: nil
-  attr :instance_debug_enabled?, :boolean, default: false
-  attr :instance_debug_level, :string, default: "off"
-  attr :instance_debug_error, :any, default: nil
-  attr :summary_meta, :list, default: []
-  attr :instance_observability_events, :list, default: []
-  attr :class, :string, default: nil
-
-  defp summary_pane(assigns) do
-    ~H"""
-    <.card class={"p-0 overflow-hidden flex flex-col min-h-0 #{@class || ""}"}>
-      <div class="px-3 py-3 border-b border-js-border">
-        <h3 class="text-xl font-semibold text-js-text">{humanize_agent_name(@agent.name)}</h3>
-        <div class="mt-1.5">
-          <.badge>{@agent.name}</.badge>
-        </div>
-
-        <div :if={@instance_links != []} class="mt-2.5 space-y-1.5">
-          <div class="text-xs uppercase tracking-wider text-js-text-subtle">Running Instances</div>
-          <div class="flex flex-wrap gap-1">
-            <.link navigate={@module_path}>
-              <.badge variant={:default}>Module</.badge>
-            </.link>
-            <.link :for={instance <- @instance_links} navigate={instance.path}>
-              <.badge variant={if(instance.id == @active_instance_id, do: :info, else: :default)}>
-                {short_instance_id(instance.id)}
-              </.badge>
-            </.link>
-          </div>
-        </div>
-
-        <div :if={@active_instance_id} class="mt-3 flex items-center justify-between gap-2">
-          <div class="text-xs uppercase tracking-wider text-js-text-subtle">Debug Buffer</div>
-          <div class="inline-flex items-center gap-1">
-            <button
-              type="button"
-              phx-click="set_debug_level"
-              phx-value-level="off"
-              class={debug_level_button_class(@instance_debug_level == "off")}
-            >
-              Off
-            </button>
-            <button
-              type="button"
-              phx-click="set_debug_level"
-              phx-value-level="on"
-              class={debug_level_button_class(@instance_debug_level == "on")}
-            >
-              On
-            </button>
-            <button
-              type="button"
-              phx-click="set_debug_level"
-              phx-value-level="verbose"
-              class={debug_level_button_class(@instance_debug_level == "verbose")}
-            >
-              Verbose
-            </button>
-          </div>
-        </div>
-
-        <p
-          :if={not is_nil(@active_instance_id) and @instance_debug_error == :debug_not_enabled}
-          class="mt-2 text-xs text-js-text-subtle"
-        >
-          Debug buffer is currently disabled for this instance.
-        </p>
-      </div>
-
-      <div class="p-3 overflow-y-auto overflow-x-hidden js-scroll space-y-3 flex-1 min-h-0">
-        <div>
-          <h4 class="text-xs uppercase tracking-wider text-js-text-subtle mb-2">Overview</h4>
-          <div class="flex flex-wrap gap-1.5">
-            <.badge
-              :for={{label, value, variant} <- @summary_meta}
-              variant={variant}
-            >
-              {label}: {value}
-            </.badge>
-          </div>
-        </div>
-
-        <div>
-          <div class="flex items-center justify-between gap-2 mb-2">
-            <h4 class="text-xs uppercase tracking-wider text-js-text-subtle">Recent Events</h4>
-            <.link
-              :if={@traces_path}
-              navigate={@traces_path}
-              class="text-xs text-js-info hover:text-js-text transition-colors"
-            >
-              View all
-            </.link>
-          </div>
-          <%= if @instance_observability_events == [] do %>
-            <p class="text-xs text-js-text-subtle">No events captured yet for this instance.</p>
-          <% else %>
-            <div class="space-y-1.5">
-              <div
-                :for={event <- Enum.take(@instance_observability_events, 3)}
-                class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2 py-1.5"
-              >
-                <div class="flex items-center justify-between gap-2">
-                  <span class="text-[11px] font-mono text-js-text-subtle">
-                    {format_event_timestamp(event[:timestamp_ms])}
-                  </span>
-                  <.badge variant={if(event[:source] == :agent_debug, do: :warning, else: :info)}>
-                    {event[:source] || :telemetry}
-                  </.badge>
-                </div>
-                <div class="mt-1 text-xs text-js-text-muted font-mono truncate">
-                  {format_event_name(event)}
-                </div>
-              </div>
-            </div>
-          <% end %>
-        </div>
-      </div>
-    </.card>
-    """
-  end
-
-  attr :agent, :map, required: true
-  attr :detail_tab, :atom, required: true
-  attr :detail_tabs, :list, required: true
-  attr :sections_by_tab, :map, required: true
-  attr :system_prompt, :string, required: true
-  attr :module_path, :string, required: true
-  attr :instance_links, :list, required: true
-  attr :active_instance_id, :string, default: nil
-  attr :active_instance_pid, :any, default: nil
-  attr :traces_path, :string, default: nil
-  attr :instance_debug_enabled?, :boolean, default: false
-  attr :instance_debug_level, :string, default: "off"
-  attr :instance_debug_error, :any, default: nil
-  attr :instance_observability_events, :list, default: []
-  attr :class, :string, default: nil
-
-  defp settings_pane(assigns) do
-    ~H"""
-    <.card class={"p-0 overflow-hidden flex flex-col min-h-0 #{@class || ""}"}>
-      <div class="px-3 py-3 border-b border-js-border">
-        <h3 class="text-xl font-semibold text-js-text">{humanize_agent_name(@agent.name)}</h3>
-        <div class="mt-1.5">
-          <.badge>{@agent.name}</.badge>
-        </div>
-
-        <div :if={@instance_links != []} class="mt-2.5 space-y-1.5">
-          <div class="text-xs uppercase tracking-wider text-js-text-subtle">Running Instances</div>
-          <div class="flex flex-wrap gap-1">
-            <.link navigate={@module_path}>
-              <.badge variant={if(is_nil(@active_instance_id), do: :info, else: :default)}>
-                Module
-              </.badge>
-            </.link>
-            <.link :for={instance <- @instance_links} navigate={instance.path}>
-              <.badge variant={if(instance.id == @active_instance_id, do: :info, else: :default)}>
-                {short_instance_id(instance.id)}
-              </.badge>
-            </.link>
-          </div>
-        </div>
-
-        <div :if={@active_instance_id} class="mt-3 flex items-center justify-between gap-2">
-          <div class="text-xs uppercase tracking-wider text-js-text-subtle">Debug Buffer</div>
-          <div class="inline-flex items-center gap-1">
-            <button
-              type="button"
-              phx-click="set_debug_level"
-              phx-value-level="off"
-              class={debug_level_button_class(@instance_debug_level == "off")}
-            >
-              Off
-            </button>
-            <button
-              type="button"
-              phx-click="set_debug_level"
-              phx-value-level="on"
-              class={debug_level_button_class(@instance_debug_level == "on")}
-            >
-              On
-            </button>
-            <button
-              type="button"
-              phx-click="set_debug_level"
-              phx-value-level="verbose"
-              class={debug_level_button_class(@instance_debug_level == "verbose")}
-            >
-              Verbose
-            </button>
-          </div>
-        </div>
-
-        <p
-          :if={not is_nil(@active_instance_id) and @instance_debug_error == :debug_not_enabled}
-          class="mt-2 text-xs text-js-text-subtle"
-        >
-          Debug buffer is currently disabled for this instance.
-        </p>
-      </div>
-
-      <div class="px-2 py-2 border-b border-js-border flex flex-wrap items-center gap-1">
-        <button
-          :for={tab <- @detail_tabs}
-          type="button"
-          phx-click="select_detail_tab"
-          phx-value-tab={tab.id}
-          class={[
-            "px-3 py-1.5 rounded-md text-xs whitespace-nowrap transition-colors",
-            if(@detail_tab == tab.id,
-              do: "bg-js-muted text-js-text",
-              else: "text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-            )
-          ]}
-        >
-          {tab.label}
-        </button>
-      </div>
-
-      <div class="p-3 overflow-y-auto overflow-x-hidden js-scroll space-y-3.5 flex-1 min-h-0">
-        <.detail_section
-          :for={section <- Map.get(@sections_by_tab, @detail_tab, [])}
-          section={section}
-        />
-
-        <div :if={@active_instance_id}>
-          <div class="flex items-center justify-between gap-2 mb-2">
-            <h4 class="text-xs uppercase tracking-wider text-js-text-subtle">Recent Events</h4>
-            <.link
-              :if={@traces_path}
-              navigate={@traces_path}
-              class="text-xs text-js-info hover:text-js-text transition-colors"
-            >
-              View all
-            </.link>
-          </div>
-          <%= if @instance_observability_events == [] do %>
-            <p class="text-xs text-js-text-subtle">No events captured yet for this instance.</p>
-          <% else %>
-            <div class="space-y-1.5">
-              <div
-                :for={event <- Enum.take(@instance_observability_events, 10)}
-                class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2 py-1.5"
-              >
-                <div class="flex items-center justify-between gap-2">
-                  <span class="text-[11px] font-mono text-js-text-subtle">
-                    {format_event_timestamp(event[:timestamp_ms])}
-                  </span>
-                  <.badge variant={if(event[:source] == :agent_debug, do: :warning, else: :info)}>
-                    {event[:source] || :telemetry}
-                  </.badge>
-                </div>
-                <div class="mt-1 text-xs text-js-text-muted font-mono truncate">
-                  {format_event_name(event)}
-                </div>
-              </div>
-            </div>
-          <% end %>
-        </div>
-
-        <div class="mt-6">
-          <h4 class="text-xs uppercase tracking-wider text-js-text-subtle mb-2">System Prompt</h4>
-          <pre class="text-xs text-js-text-muted bg-js-bg-elevated border border-js-border rounded-md p-3 whitespace-pre-wrap break-words overflow-x-hidden"><%= @system_prompt %></pre>
-        </div>
-      </div>
-    </.card>
-    """
-  end
-
-  attr :section, :map, required: true
-
-  defp detail_section(assigns) do
-    ~H"""
-    <div>
-      <h4 class="text-xs uppercase tracking-wider text-js-text-subtle mb-2">{@section.title}</h4>
-      <%= case @section.kind do %>
-        <% :badge -> %>
-          <.badge variant={Map.get(@section, :variant, :default)}>{@section.data}</.badge>
-        <% :badges -> %>
-          <div class="flex flex-wrap gap-1">
-            <.badge :for={item <- List.wrap(@section.data)}>{item}</.badge>
-          </div>
-        <% :kv -> %>
-          <div class="space-y-1">
-            <div :for={{key, value} <- section_rows(@section.data)} class="text-xs text-js-text-muted">
-              <span class="text-js-text-subtle">{key}:</span> {value}
-            </div>
-          </div>
-        <% :code -> %>
-          <pre class="text-xs text-js-text-muted bg-js-bg-elevated border border-js-border rounded-md p-3 whitespace-pre-wrap break-words overflow-x-auto"><%= @section.data %></pre>
-        <% _ -> %>
-          <p class="text-sm text-js-text-muted">{@section.data}</p>
-      <% end %>
-    </div>
-    """
-  end
-
-  attr :show, :boolean, required: true
-  attr :start_form, :map, required: true
-  attr :start_form_schema, :list, required: true
-  attr :start_form_error, :string, default: nil
-  attr :starting_instance?, :boolean, default: false
-
-  defp start_instance_modal(assigns) do
-    ~H"""
-    <div
-      :if={@show}
-      class="fixed inset-0 z-50 flex items-center justify-center p-4"
-      phx-window-keydown="close_start_modal"
-      phx-key="escape"
-    >
-      <button
-        type="button"
-        class="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        phx-click="close_start_modal"
-        aria-label="Close modal"
-      />
-
-      <div class="relative w-full max-w-lg rounded-xl bg-js-card border border-js-border p-6 shadow-2xl">
-        <button
-          type="button"
-          phx-click="close_start_modal"
-          class="absolute top-4 right-4 text-js-text-muted hover:text-js-text transition-colors"
-          aria-label="close"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-5 w-5"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-              clip-rule="evenodd"
-            />
-          </svg>
-        </button>
-
-        <div class="space-y-4">
-          <div>
-            <h3 id="start-instance-modal-title" class="text-lg font-semibold text-js-text">
-              Start Instance
-            </h3>
-            <p class="text-sm text-js-text-muted mt-1">
-              Configure optional startup fields for this agent instance.
-            </p>
-          </div>
-
-          <div
-            :if={@start_form_error}
-            class="rounded-md border border-js-error/40 bg-js-error/10 p-3 text-sm text-js-error"
-          >
-            {@start_form_error}
-          </div>
-
-          <form
-            phx-change="update_start_form"
-            phx-submit="start_instance_with_options"
-            class="space-y-4"
-          >
-            <div :for={field <- @start_form_schema} class="space-y-1">
-              <%= case field.type do %>
-                <% :checkbox -> %>
-                  <div class="space-y-2">
-                    <label class="text-xs uppercase tracking-wider text-js-text-subtle">
-                      Options
-                    </label>
-                    <div class="flex items-center gap-2">
-                      <input type="hidden" name={"start[#{field.name}]"} value="false" />
-                      <input
-                        id={start_field_id(field.name)}
-                        type="checkbox"
-                        name={"start[#{field.name}]"}
-                        value="true"
-                        checked={Map.get(@start_form, field.name, "false") == "true"}
-                        class="h-4 w-4 rounded border-js-border bg-js-bg-elevated text-js-primary focus:ring-js-ring"
-                      />
-                      <label for={start_field_id(field.name)} class="text-sm text-js-text-muted">
-                        {field.label}
-                      </label>
-                    </div>
-                  </div>
-                <% :textarea_json -> %>
-                  <label
-                    for={start_field_id(field.name)}
-                    class="text-xs uppercase tracking-wider text-js-text-subtle"
-                  >
-                    {field.label}
-                  </label>
-                  <textarea
-                    id={start_field_id(field.name)}
-                    name={"start[#{field.name}]"}
-                    rows={Map.get(field, :rows, 6)}
-                    placeholder={Map.get(field, :placeholder, "")}
-                    class="w-full rounded-md border border-js-border bg-js-bg-elevated p-2 text-sm text-js-text font-mono focus:outline-none focus:ring-2 focus:ring-js-ring"
-                  ><%= Map.get(@start_form, field.name, "") %></textarea>
-                <% _ -> %>
-                  <label
-                    for={start_field_id(field.name)}
-                    class="text-xs uppercase tracking-wider text-js-text-subtle"
-                  >
-                    {field.label}
-                  </label>
-                  <input
-                    id={start_field_id(field.name)}
-                    type="text"
-                    name={"start[#{field.name}]"}
-                    value={Map.get(@start_form, field.name, "")}
-                    placeholder={Map.get(field, :placeholder, "")}
-                    class="w-full rounded-md border border-js-border bg-js-bg-elevated p-2 text-sm text-js-text focus:outline-none focus:ring-2 focus:ring-js-ring"
-                  />
-              <% end %>
-              <p :if={Map.get(field, :help)} class="text-xs text-js-text-subtle">
-                {field.help}
-              </p>
-            </div>
-
-            <div class="flex items-center justify-end gap-2 pt-2">
-              <.button
-                type="button"
-                variant={:ghost}
-                phx-click="close_start_modal"
-                disabled={@starting_instance?}
-              >
-                Cancel
-              </.button>
-              <.button type="submit" disabled={@starting_instance?}>
-                <%= if @starting_instance? do %>
-                  Starting...
-                <% else %>
-                  Start Instance
-                <% end %>
-              </.button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  defp section_rows(data) when is_map(data) do
-    Enum.map(data, fn {key, value} -> {to_string(key), to_string(value)} end)
-  end
-
-  defp section_rows(data) when is_list(data), do: data
-  defp section_rows(_), do: []
 
   defp parse_detail_tab(nil, detail_tabs), do: default_detail_tab(detail_tabs)
 
@@ -2079,10 +3190,10 @@ defmodule JidoStudio.AgentsLive do
 
   defp instance_debug_enabled(_), do: false
 
-  defp agent_module_path(prefix, agent), do: "#{prefix}/agents/#{agent.slug}"
+  defp agent_module_path(prefix, agent), do: scoped_path("#{prefix}/agents/#{agent.slug}")
 
   defp agent_instance_path(prefix, agent, instance_id) do
-    "#{prefix}/agents/#{agent.slug}/#{URI.encode_www_form(instance_id)}"
+    scoped_path("#{prefix}/agents/#{agent.slug}/#{URI.encode_www_form(instance_id)}")
   end
 
   defp instance_links(prefix, agent, running_instances, active_instance_id) do
@@ -2111,17 +3222,111 @@ defmodule JidoStudio.AgentsLive do
       |> URI.encode_query()
 
     if query == "" do
-      "#{prefix}/traces"
+      scoped_path("#{prefix}/traces")
     else
-      "#{prefix}/traces?#{query}"
+      scoped_path("#{prefix}/traces?#{query}")
     end
   end
 
-  defp short_instance_id(id) when is_binary(id) do
-    if String.length(id) <= 12, do: id, else: String.slice(id, 0, 12)
+  defp triage_links(prefix, instance_id, scope_filters) when is_binary(instance_id) do
+    scope_params = scope_query_params(scope_filters)
+
+    incident =
+      Incidents.latest_for_agent(
+        instance_id,
+        Map.merge(%{agent_id: instance_id, range: "24h"}, scope_params)
+      )
+
+    latest_incident_path =
+      if is_map(incident) and is_binary(incident[:incident_id]) do
+        scoped_path(
+          prefix <>
+            "/traces?" <>
+            URI.encode_query(Map.put(scope_params, "incident_id", incident[:incident_id]))
+        )
+      else
+        nil
+      end
+
+    failures_params =
+      scope_params
+      |> Map.put("agent_id", instance_id)
+      |> Map.put("status", "error")
+      |> Map.put("error_only", "true")
+
+    snapshot_params =
+      scope_params
+      |> Map.put("agent_id", instance_id)
+      |> Map.put("range", "1h")
+
+    %{
+      latest_incident_path: latest_incident_path,
+      failures_path: scoped_path(prefix <> "/actions?" <> URI.encode_query(failures_params)),
+      snapshot_path: scoped_path(prefix <> "/signals?" <> URI.encode_query(snapshot_params))
+    }
+  rescue
+    _ ->
+      %{}
   end
 
-  defp short_instance_id(_), do: "instance"
+  defp triage_links(_prefix, _instance_id, _scope_filters), do: %{}
+
+  defp scope_query_params(scope_filters) when is_map(scope_filters) do
+    %{}
+    |> maybe_put_query("project_id", normalize_scope_value(scope_filters.project_id))
+    |> maybe_put_query("user_id", normalize_scope_value(scope_filters.user_id))
+  end
+
+  defp scope_query_params(_), do: %{}
+
+  defp maybe_put_query(params, _key, nil), do: params
+  defp maybe_put_query(params, key, value), do: Map.put(params, key, value)
+
+  defp active_instance_path(prefix, %{agent_slug: slug, instance_id: instance_id})
+       when is_binary(prefix) and is_binary(slug) and is_binary(instance_id) do
+    scoped_path("#{prefix}/agents/#{slug}/#{URI.encode_www_form(instance_id)}")
+  end
+
+  defp active_instance_path(_prefix, _row), do: nil
+
+  defp scoped_path(path) do
+    Scope.with_scope_query(path, Scope.current_node_param())
+  end
+
+  defp status_badge_variant(status) when status in ["running", :running], do: :success
+  defp status_badge_variant(status) when status in ["idle", :idle], do: :info
+  defp status_badge_variant(status) when status in ["error", :error], do: :error
+  defp status_badge_variant(status) when status in ["interrupted", :interrupted], do: :warning
+  defp status_badge_variant(_), do: :default
+
+  defp datetime_to_unix_ms(%DateTime{} = datetime), do: DateTime.to_unix(datetime, :millisecond)
+  defp datetime_to_unix_ms(_), do: nil
+
+  defp format_datetime(%DateTime{} = datetime) do
+    Calendar.strftime(datetime, "%Y-%m-%d %H:%M:%S")
+  end
+
+  defp format_datetime(_), do: "n/a"
+
+  defp format_uptime(ms) when is_integer(ms) and ms >= 0 do
+    total_seconds = div(ms, 1_000)
+    hours = div(total_seconds, 3_600)
+    minutes = div(rem(total_seconds, 3_600), 60)
+    seconds = rem(total_seconds, 60)
+
+    cond do
+      hours > 0 ->
+        "#{hours}h #{minutes}m"
+
+      minutes > 0 ->
+        "#{minutes}m #{seconds}s"
+
+      true ->
+        "#{seconds}s"
+    end
+  end
+
+  defp format_uptime(_), do: "n/a"
 
   defp fetch_jido_instance(socket) do
     case resolve_jido_instance(socket.assigns[:jido_instance]) do
@@ -2376,13 +3581,6 @@ defmodule JidoStudio.AgentsLive do
     end)
   end
 
-  defp event_metadata_value(event, key) when is_map(event) do
-    metadata = Map.get(event, :metadata, %{})
-    Map.get(metadata, key, Map.get(metadata, Atom.to_string(key)))
-  end
-
-  defp event_metadata_value(_event, _key), do: nil
-
   defp summarize_tool_telemetry(events) when is_list(events) do
     start_event = Enum.find(events, &(&1.event_prefix == [:jido, :ai, :tool, :execute, :start]))
     stop_event = Enum.find(events, &(&1.event_prefix == [:jido, :ai, :tool, :execute, :stop]))
@@ -2472,6 +3670,14 @@ defmodule JidoStudio.AgentsLive do
       live_action != :show or is_nil(agent) or not is_binary(instance_id) or not is_pid(pid) ->
         socket
         |> assign(:runtime_status, nil)
+        |> assign(:runtime_messages, [])
+        |> assign(:runtime_todos, [])
+        |> assign(:instance_event_stream, [])
+        |> assign(:expanded_event_ids, MapSet.new())
+        |> assign(:interaction_model, empty_interaction_model())
+        |> assign(:runner_form, RunnerForm.new())
+        |> assign(:runner_result, nil)
+        |> assign(:runner_history, [])
         |> assign(:instance_observability_events, [])
         |> assign(:instance_debug_events, [])
         |> assign(:instance_telemetry_events, [])
@@ -2483,6 +3689,9 @@ defmodule JidoStudio.AgentsLive do
         |> assign(:delegation_graph, %{nodes: [], edges: []})
         |> assign(:tool_insights, [])
         |> assign(:middleware_snapshots, [])
+        |> assign(:subagent_events, %{})
+        |> assign(:expanded_subagent_id, nil)
+        |> assign(:triage_links, %{})
 
       true ->
         preview =
@@ -2518,6 +3727,14 @@ defmodule JidoStudio.AgentsLive do
           |> Map.get(:events, [])
           |> Enum.find_value(fn event -> event[:trace_id] end)
 
+        runtime_messages = MessageSnapshot.thread_messages(runtime_status)
+        runtime_todos = runtime_todos_for_display(runtime_status, tasks)
+
+        event_stream =
+          preview
+          |> Map.get(:events, [])
+          |> build_instance_event_stream(socket.assigns[:live_event_limit])
+
         delegation_graph =
           if Delegation.enabled?() and is_binary(latest_trace_id) do
             Delegation.delegation_graph(latest_trace_id, limit: 800)
@@ -2537,6 +3754,13 @@ defmodule JidoStudio.AgentsLive do
             Delegation.list_middleware_snapshots(instance_id, limit: 40)
           else
             []
+          end
+
+        interaction_model =
+          if AgentInteractions.enabled?() do
+            Introspection.build(agent.module, %{pid: pid}, events: Map.get(preview, :events, []))
+          else
+            empty_interaction_model()
           end
 
         view_model =
@@ -2559,6 +3783,13 @@ defmodule JidoStudio.AgentsLive do
 
         socket
         |> assign(:runtime_status, runtime_status)
+        |> assign(:runtime_messages, runtime_messages)
+        |> assign(:runtime_todos, runtime_todos)
+        |> assign(:instance_event_stream, event_stream)
+        |> assign(
+          :expanded_event_ids,
+          sanitize_expanded_event_ids(socket.assigns[:expanded_event_ids], event_stream)
+        )
         |> assign(:instance_debug_enabled?, debug_enabled)
         |> assign(:instance_debug_level, debug_level)
         |> assign(:instance_observability_events, Map.get(preview, :events, []))
@@ -2570,14 +3801,18 @@ defmodule JidoStudio.AgentsLive do
         |> assign(:delegation_graph, delegation_graph)
         |> assign(:tool_insights, tool_insights)
         |> assign(:middleware_snapshots, middleware_snapshots)
+        |> assign(:interaction_model, interaction_model)
+        |> assign(:runner_form, sync_runner_form(socket.assigns[:runner_form], interaction_model))
         |> assign(:detail_tabs, tabs)
         |> assign(:detail_tab, preserve_detail_tab(socket.assigns[:detail_tab], tabs))
         |> assign(:sections_by_tab, Map.get(view_model, :sections_by_tab, %{}))
+        |> assign(:triage_links, triage_links(socket.assigns.prefix, instance_id, scope))
         |> assign(
           :system_prompt,
           Map.get(view_model, :system_prompt, "No system prompt configured.")
         )
         |> maybe_capture_thread_context_snapshot(runtime_status)
+        |> maybe_load_subagent_events(socket.assigns[:expanded_subagent_id])
     end
   end
 
@@ -2586,10 +3821,14 @@ defmodule JidoStudio.AgentsLive do
            jido_instance: socket.assigns[:jido_instance]
          ) do
       {:ok, payload} ->
+        interaction_history = payload[:interaction_history] || %{}
+
         socket
         |> assign(:chat_state, ensure_workspace_chat_state(payload.chat_state))
         |> assign(:draft_message, payload.draft_message || "")
         |> assign(:persisted_thread_contexts, payload.thread_contexts || %{})
+        |> assign(:interaction_history, interaction_history)
+        |> assign(:runner_history, Map.get(interaction_history, instance_id, []))
         |> assign(:workspace_source, payload.source || :fresh)
 
       {:error, _reason} ->
@@ -2597,6 +3836,8 @@ defmodule JidoStudio.AgentsLive do
         |> assign(:chat_state, ChatSession.with_initial_thread("New Chat"))
         |> assign(:draft_message, "")
         |> assign(:persisted_thread_contexts, %{})
+        |> assign(:interaction_history, %{})
+        |> assign(:runner_history, [])
         |> assign(:workspace_source, :fresh)
     end
   end
@@ -2641,6 +3882,7 @@ defmodule JidoStudio.AgentsLive do
           jido_instance: socket.assigns[:jido_instance],
           draft_message: socket.assigns[:draft_message] || "",
           thread_contexts: socket.assigns[:persisted_thread_contexts] || %{},
+          interaction_history: socket.assigns[:interaction_history] || %{},
           instance_binding: %{
             agent_slug: socket.assigns.agent.slug,
             agent_module: inspect(socket.assigns.agent.module),
@@ -2781,29 +4023,6 @@ defmodule JidoStudio.AgentsLive do
     if Enum.any?(tabs, &(&1.id == tab)), do: tab, else: default_detail_tab(tabs)
   end
 
-  defp format_event_name(event) when is_map(event) do
-    cond do
-      is_binary(event[:event_name]) ->
-        event[:event_name]
-
-      is_list(event[:event_prefix]) ->
-        Enum.join(event[:event_prefix], ".")
-
-      true ->
-        "event"
-    end
-  end
-
-  defp format_event_name(_), do: "event"
-
-  defp format_event_timestamp(ts) when is_integer(ts) do
-    ts
-    |> DateTime.from_unix!(:millisecond)
-    |> Calendar.strftime("%H:%M:%S")
-  end
-
-  defp format_event_timestamp(_), do: "--:--:--"
-
   defp setup_live_ops(socket) do
     enabled? = LiveOps.enabled?()
     presence? = LiveOps.presence_available?()
@@ -2814,7 +4033,7 @@ defmodule JidoStudio.AgentsLive do
     end
 
     if connected?(socket) and not realtime? do
-      :timer.send_interval(2000, self(), :refresh_instance_observability)
+      :timer.send_interval(LiveOps.agent_list_poll_ms(), self(), :refresh_instance_observability)
     end
 
     socket
@@ -2830,525 +4049,4 @@ defmodule JidoStudio.AgentsLive do
 
     socket
   end
-
-  defp normalize_scope_filters(scope_params) when is_map(scope_params) do
-    %{
-      project_id: normalize_scope_value(scope_params["project_id"] || scope_params[:project_id]),
-      user_id: normalize_scope_value(scope_params["user_id"] || scope_params[:user_id]),
-      agent_id: normalize_scope_value(scope_params["agent_id"] || scope_params[:agent_id])
-    }
-  end
-
-  defp normalize_scope_filters(_), do: %{project_id: nil, user_id: nil, agent_id: nil}
-
-  defp merge_scope_filters(existing, nil) when is_map(existing), do: existing
-
-  defp merge_scope_filters(existing, scope_params) when is_map(existing) do
-    incoming = normalize_scope_filters(scope_params)
-
-    if incoming.project_id || incoming.user_id || incoming.agent_id do
-      incoming
-    else
-      existing
-    end
-  end
-
-  defp merge_scope_filters(_, scope_params), do: normalize_scope_filters(scope_params)
-
-  defp normalize_scope_value(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      normalized -> normalized
-    end
-  end
-
-  defp normalize_scope_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp normalize_scope_value(_), do: nil
-
-  defp filter_agents_by_scope(agents, nil), do: agents
-
-  defp filter_agents_by_scope(agents, scope_filters)
-       when is_list(agents) and is_map(scope_filters) do
-    agent_id_query = normalize_scope_value(scope_filters.agent_id)
-    scoped_instance_ids = scope_candidate_instance_ids(scope_filters)
-
-    Enum.filter(agents, fn agent ->
-      running_instances = agent.running_instances || []
-      instance_ids = Enum.map(running_instances, &to_string(&1.id))
-
-      agent_match? =
-        case agent_id_query do
-          nil ->
-            true
-
-          query ->
-            String.contains?(String.downcase(agent.slug || ""), String.downcase(query)) or
-              String.contains?(String.downcase(agent.name || ""), String.downcase(query)) or
-              Enum.any?(
-                instance_ids,
-                &String.contains?(String.downcase(&1), String.downcase(query))
-              )
-        end
-
-      scope_match? =
-        case scoped_instance_ids do
-          :all ->
-            true
-
-          ids when is_struct(ids, MapSet) ->
-            if MapSet.size(ids) > 0 do
-              Enum.any?(instance_ids, &MapSet.member?(ids, &1))
-            else
-              false
-            end
-
-          _ ->
-            true
-        end
-
-      agent_match? and scope_match?
-    end)
-  end
-
-  defp filter_agents_by_scope(agents, _), do: agents
-
-  defp scope_candidate_instance_ids(scope_filters) do
-    project_id = normalize_scope_value(scope_filters.project_id)
-    user_id = normalize_scope_value(scope_filters.user_id)
-
-    if is_nil(project_id) and is_nil(user_id) do
-      :all
-    else
-      TraceBuffer.events(2_000)
-      |> Enum.reduce(MapSet.new(), fn event, acc ->
-        scope = event[:scope] || event[:metadata] || %{}
-        event_project_id = scope[:project_id] || scope["project_id"]
-        event_user_id = scope[:user_id] || scope["user_id"]
-        agent_id = event[:agent_id] || event[:instance_id]
-
-        project_ok = is_nil(project_id) or to_string(event_project_id) == project_id
-        user_ok = is_nil(user_id) or to_string(event_user_id) == user_id
-
-        if project_ok and user_ok and is_binary(agent_id) do
-          MapSet.put(acc, agent_id)
-        else
-          acc
-        end
-      end)
-    end
-  end
-
-  defp scope_filters_match?(_event_scope, nil), do: true
-
-  defp scope_filters_match?(event_scope, scope_filters) when is_map(scope_filters) do
-    scope =
-      cond do
-        is_map(event_scope) -> event_scope
-        is_list(event_scope) -> Map.new(event_scope)
-        true -> %{}
-      end
-
-    project_id = normalize_scope_value(scope_filters.project_id)
-    user_id = normalize_scope_value(scope_filters.user_id)
-
-    project_ok =
-      is_nil(project_id) or to_string(scope[:project_id] || scope["project_id"]) == project_id
-
-    user_ok = is_nil(user_id) or to_string(scope[:user_id] || scope["user_id"]) == user_id
-    project_ok and user_ok
-  end
-
-  defp scope_filters_match?(_, _), do: true
-
-  defp infer_debug_level(false, _current), do: "off"
-  defp infer_debug_level(true, "verbose"), do: "verbose"
-  defp infer_debug_level(true, _), do: "on"
-
-  defp normalize_debug_level(level, true) when level in ["on", "verbose"], do: level
-  defp normalize_debug_level(_level, true), do: "on"
-  defp normalize_debug_level(_level, false), do: "off"
-
-  defp debug_level_button_class(active?) do
-    if active? do
-      "inline-flex items-center rounded-md px-2.5 py-1 text-xs border border-js-info/30 bg-js-info/15 text-js-info"
-    else
-      "inline-flex items-center rounded-md px-2.5 py-1 text-xs border border-js-border text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-    end
-  end
-
-  defp task_badge_variant("error"), do: :error
-  defp task_badge_variant(:error), do: :error
-  defp task_badge_variant("ok"), do: :success
-  defp task_badge_variant(:ok), do: :success
-  defp task_badge_variant("running"), do: :info
-  defp task_badge_variant(:running), do: :info
-  defp task_badge_variant(_), do: :default
-
-  defp workbench_tab_button_class(active?) do
-    base =
-      "inline-flex h-7 items-center justify-center whitespace-nowrap rounded-md border px-3 text-xs font-medium transition-colors"
-
-    active_class = "border-js-border bg-js-card text-js-text shadow-sm"
-
-    inactive_class =
-      "border-transparent text-js-text-muted hover:text-js-text hover:bg-js-bg"
-
-    if active?, do: "#{base} #{active_class}", else: "#{base} #{inactive_class}"
-  end
-
-  defp workbench_grid_class(true) do
-    "grid grid-cols-1 gap-2 md:grid-cols-[180px_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:min-h-0 lg:grid-cols-[200px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] xl:grid-cols-[200px_minmax(0,1fr)_300px] xl:grid-rows-[minmax(0,1fr)]"
-  end
-
-  defp workbench_grid_class(false) do
-    "grid grid-cols-1 gap-2 md:grid-cols-[180px_minmax(0,1fr)] lg:grid-cols-[200px_minmax(0,1fr)] lg:min-h-0"
-  end
-
-  defp workbench_threads_rail_class(true), do: "md:row-span-2 xl:row-span-1"
-  defp workbench_threads_rail_class(false), do: nil
-
-  defp parse_workbench_tab(panel, legacy_view \\ nil)
-
-  defp parse_workbench_tab(panel, _legacy_view)
-       when panel in [
-              :chat,
-              :thread_context,
-              :thread_events,
-              :instance,
-              :sub_agents,
-              :tasks,
-              :tool_insights,
-              :middleware
-            ],
-       do: panel
-
-  defp parse_workbench_tab("chat", _legacy_view), do: :chat
-  defp parse_workbench_tab("thread_context", _legacy_view), do: :thread_context
-  defp parse_workbench_tab("context", _legacy_view), do: :thread_context
-  defp parse_workbench_tab("thread_events", _legacy_view), do: :thread_events
-  defp parse_workbench_tab("events", _legacy_view), do: :thread_events
-  defp parse_workbench_tab("instance", _legacy_view), do: :instance
-  defp parse_workbench_tab("sub_agents", _legacy_view), do: :sub_agents
-  defp parse_workbench_tab("tasks", _legacy_view), do: :tasks
-  defp parse_workbench_tab("tool_insights", _legacy_view), do: :tool_insights
-  defp parse_workbench_tab("middleware", _legacy_view), do: :middleware
-  defp parse_workbench_tab(_, "inspect"), do: :instance
-  defp parse_workbench_tab(_, :inspect), do: :instance
-  defp parse_workbench_tab(_, _), do: :chat
-
-  defp workbench_path(prefix, agent, instance_id, panel, tab) do
-    base = agent_instance_path(prefix, agent, instance_id)
-    panel = parse_workbench_tab(panel)
-    panel_value = panel_query_value(panel)
-    tab_value = tab_query_value(tab)
-
-    params =
-      [{"panel", panel_value}] ++
-        if(panel == :instance and is_binary(tab_value), do: [{"tab", tab_value}], else: [])
-
-    query =
-      params
-      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-      |> URI.encode_query()
-
-    if query == "", do: base, else: "#{base}?#{query}"
-  end
-
-  defp panel_query_value(:chat), do: "chat"
-  defp panel_query_value(:thread_context), do: "thread_context"
-  defp panel_query_value(:thread_events), do: "thread_events"
-  defp panel_query_value(:instance), do: "instance"
-  defp panel_query_value(:sub_agents), do: "sub_agents"
-  defp panel_query_value(:tasks), do: "tasks"
-  defp panel_query_value(:tool_insights), do: "tool_insights"
-  defp panel_query_value(:middleware), do: "middleware"
-  defp panel_query_value(_), do: "chat"
-
-  defp tab_query_value(tab) when is_atom(tab), do: Atom.to_string(tab)
-  defp tab_query_value(tab) when is_binary(tab) and tab != "", do: tab
-  defp tab_query_value(_), do: nil
-
-  defp thread_context_sections(
-         sections_by_tab,
-         persisted_contexts,
-         active_thread_id,
-         instance_online?
-       )
-       when is_map(sections_by_tab) do
-    context = Map.get(sections_by_tab, :context, [])
-    reasoning = Map.get(sections_by_tab, :reasoning, [])
-    overview = Map.get(sections_by_tab, :overview, [])
-
-    persisted =
-      persisted_thread_context_sections(persisted_contexts, active_thread_id, instance_online?)
-
-    sections = context ++ reasoning ++ overview ++ persisted
-
-    if sections == [], do: [], else: sections
-  end
-
-  defp thread_context_sections(_, persisted_contexts, active_thread_id, instance_online?) do
-    persisted_thread_context_sections(persisted_contexts, active_thread_id, instance_online?)
-  end
-
-  defp persisted_thread_context_sections(contexts, active_thread_id, instance_online?) do
-    with true <- is_map(contexts),
-         true <- is_binary(active_thread_id),
-         %{} = snapshot <- Map.get(contexts, active_thread_id) do
-      summary_rows =
-        [
-          {"Source",
-           if(instance_online?,
-             do: "Persisted snapshot (live available)",
-             else: "Persisted snapshot (instance offline)"
-           )},
-          {"Captured At", format_event_timestamp(Map.get(snapshot, :captured_at))},
-          {"Status", to_string(Map.get(snapshot, :status, "unknown"))},
-          {"Strategy Thread", to_string(Map.get(snapshot, :strategy_thread_id, "n/a"))},
-          {"Iteration", to_string(Map.get(snapshot, :iteration, 0))},
-          {"Conversation", to_string(Map.get(snapshot, :conversation_count, 0))},
-          {"Pending Tool Calls", to_string(Map.get(snapshot, :pending_tool_calls_count, 0))},
-          {"Thinking Blocks", to_string(Map.get(snapshot, :thinking_blocks_count, 0))},
-          {"Termination", to_string(Map.get(snapshot, :termination_reason, "n/a"))},
-          {"Model", to_string(Map.get(snapshot, :model, "n/a"))}
-        ]
-
-      sections = [
-        %{title: "Persisted Context Snapshot", kind: :kv, data: summary_rows, variant: :warning}
-      ]
-
-      case Map.get(snapshot, :strategy_state) do
-        %{} = strategy_state ->
-          sections ++
-            [
-              %{
-                title: "Persisted Strategy State",
-                kind: :code,
-                data: inspect(strategy_state, pretty: true, limit: 120, printable_limit: 20_000),
-                variant: :default
-              }
-            ]
-
-        _ ->
-          sections
-      end
-    else
-      _ -> []
-    end
-  end
-
-  defp active_strategy_thread_id(%{raw_state: raw_state}) when is_map(raw_state) do
-    raw_state
-    |> Map.get(:__strategy__, %{})
-    |> Map.get(:thread, %{})
-    |> Map.get(:id)
-  end
-
-  defp active_strategy_thread_id(_), do: nil
-
-  defp thread_events_for_display(events, thread_id, query, limit) when is_list(events) do
-    filtered =
-      if is_binary(thread_id) and thread_id != "" do
-        Enum.filter(events, fn event ->
-          case event_thread_id(event) do
-            nil -> false
-            value -> value == thread_id
-          end
-        end)
-      else
-        []
-      end
-
-    selected =
-      cond do
-        filtered != [] -> filtered
-        true -> events
-      end
-
-    selected
-    |> filter_events_by_query(query)
-    |> Enum.take(normalize_thread_event_limit(limit))
-  end
-
-  defp thread_events_for_display(_, _, _, _), do: []
-
-  defp event_thread_id(event) when is_map(event) do
-    metadata = Map.get(event, :metadata, %{})
-    Map.get(metadata, :thread_id) || Map.get(metadata, "thread_id")
-  end
-
-  defp event_thread_id(_), do: nil
-
-  defp filter_events_by_query(events, query) when is_list(events) do
-    case normalize_optional_query(query) do
-      nil ->
-        events
-
-      normalized ->
-        Enum.filter(events, fn event ->
-          haystack =
-            [
-              format_event_name(event),
-              inspect(event[:metadata] || %{}, limit: 5),
-              to_string(event[:type] || ""),
-              to_string(event[:source] || ""),
-              to_string(event[:trace_id] || ""),
-              to_string(event[:span_id] || "")
-            ]
-            |> Enum.join(" ")
-            |> String.downcase()
-
-          String.contains?(haystack, normalized)
-        end)
-    end
-  end
-
-  defp filter_events_by_query(events, _), do: events
-
-  defp normalize_optional_query(query) when is_binary(query) do
-    query
-    |> String.trim()
-    |> String.downcase()
-    |> case do
-      "" -> nil
-      value -> value
-    end
-  end
-
-  defp normalize_optional_query(_), do: nil
-
-  defp normalize_thread_event_limit(value) when is_integer(value) and value > 0, do: value
-  defp normalize_thread_event_limit(_), do: 200
-
-  defp ordered_detail_tabs(tabs) when is_list(tabs) do
-    desired = [:overview, :reasoning, :context, :weather, :model, :memory, :tracing]
-
-    sorted =
-      tabs
-      |> Enum.sort_by(fn tab ->
-        case Enum.find_index(desired, &(&1 == tab.id)) do
-          nil -> 1_000
-          idx -> idx
-        end
-      end)
-
-    if sorted == [], do: [%{id: :overview, label: "Overview"}], else: sorted
-  end
-
-  defp ordered_detail_tabs(_), do: [%{id: :overview, label: "Overview"}]
-
-  defp summary_meta(runtime_status, model_label) do
-    details =
-      (runtime_status && runtime_status.snapshot && runtime_status.snapshot.details) || %{}
-
-    status = runtime_status && runtime_status.snapshot && runtime_status.snapshot.status
-
-    [
-      {"Status", summary_status_label(status), summary_status_variant(status)},
-      {"Model", to_string(model_label || "n/a"), :info},
-      {"Iteration", to_string(details[:iteration] || 0), :default},
-      {"Tool Calls", to_string(length(details[:tool_calls] || [])), :default},
-      {"Turns", to_string(length(details[:conversation] || [])), :default}
-    ]
-  end
-
-  defp summary_status_label(status) do
-    status = if is_nil(status), do: :offline, else: status
-
-    status
-    |> to_string()
-    |> String.replace("_", " ")
-    |> String.capitalize()
-  end
-
-  defp summary_status_variant(:running), do: :success
-  defp summary_status_variant(:success), do: :success
-  defp summary_status_variant(:error), do: :error
-  defp summary_status_variant(_), do: :default
-
-  defp default_start_form(schema) do
-    Enum.reduce(schema, %{}, fn field, acc ->
-      Map.put(acc, field.name, default_field_value(field))
-    end)
-  end
-
-  defp normalize_start_form(form, schema) do
-    defaults = default_start_form(schema)
-
-    Enum.reduce(schema, defaults, fn field, acc ->
-      key = field.name
-      raw = Map.get(form, key)
-      Map.put(acc, key, normalize_field_value(field, raw))
-    end)
-  end
-
-  defp default_field_value(%{type: :checkbox} = field) do
-    if Map.get(field, :default, "false") in ["true", "on", "1"], do: "true", else: "false"
-  end
-
-  defp default_field_value(field), do: Map.get(field, :default, "")
-
-  defp normalize_field_value(%{type: :checkbox}, raw) do
-    if raw in ["true", "on", "1"], do: "true", else: "false"
-  end
-
-  defp normalize_field_value(_field, raw), do: to_string(raw || "") |> String.trim()
-
-  defp build_start_opts(form) do
-    instance_id = form["instance_id"] |> to_string() |> String.trim()
-    debug? = form["debug"] == "true"
-
-    with {:ok, initial_state} <- parse_initial_state(form["initial_state_json"]) do
-      opts = []
-      opts = if instance_id == "", do: opts, else: [{:id, instance_id} | opts]
-      opts = if debug?, do: [{:debug, true} | opts], else: opts
-      opts = if initial_state == %{}, do: opts, else: [{:initial_state, initial_state} | opts]
-      {:ok, Enum.reverse(opts)}
-    end
-  end
-
-  defp parse_initial_state(nil), do: {:ok, %{}}
-  defp parse_initial_state(""), do: {:ok, %{}}
-
-  defp parse_initial_state(raw_json) when is_binary(raw_json) do
-    json = String.trim(raw_json)
-
-    if json == "" do
-      {:ok, %{}}
-    else
-      case Jason.decode(json) do
-        {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
-        {:ok, _other} -> {:error, "Initial state JSON must decode to an object/map."}
-        {:error, error} -> {:error, "Invalid initial state JSON: #{Exception.message(error)}"}
-      end
-    end
-  end
-
-  defp parse_initial_state(_), do: {:error, "Initial state must be valid JSON."}
-
-  defp resolve_instance_id(_jido_instance, pid, _opts) when is_pid(pid) do
-    with {:ok, state} <- Jido.AgentServer.state(pid),
-         id when is_binary(id) <- state.id do
-      {:ok, id}
-    else
-      _ -> {:error, "Started instance but failed to resolve instance ID."}
-    end
-  rescue
-    _ -> {:error, "Started instance but failed to resolve instance ID."}
-  end
-
-  defp format_start_error(reason) when is_binary(reason), do: reason
-  defp format_start_error(reason), do: "Failed to start agent instance: #{inspect(reason)}"
-
-  defp start_field_id(name) when is_binary(name) do
-    "start-" <>
-      (name
-       |> String.downcase()
-       |> String.replace(~r/[^a-z0-9]+/, "-")
-       |> String.trim("-"))
-  end
-
-  defp now_ms, do: System.system_time(:millisecond)
-
-  defp humanize_agent_name(name), do: Naming.humanize(name)
 end

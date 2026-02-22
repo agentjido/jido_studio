@@ -122,6 +122,24 @@ defmodule JidoStudio.Tracing do
     agent_filter =
       normalize_optional_string(Map.get(filters, :agent) || Map.get(filters, "agent"))
 
+    trace_id_filter =
+      normalize_optional_string(Map.get(filters, :trace_id) || Map.get(filters, "trace_id"))
+
+    incident_filter =
+      normalize_optional_string(Map.get(filters, :incident_id) || Map.get(filters, "incident_id"))
+
+    request_filter =
+      normalize_optional_string(Map.get(filters, :request_id) || Map.get(filters, "request_id"))
+
+    project_filter =
+      normalize_optional_string(Map.get(filters, :project_id) || Map.get(filters, "project_id"))
+
+    user_filter =
+      normalize_optional_string(Map.get(filters, :user_id) || Map.get(filters, "user_id"))
+
+    query_filter =
+      normalize_optional_string(Map.get(filters, :query) || Map.get(filters, "query"))
+
     {from_ms, to_ms} =
       time_range_bounds(
         Map.get(filters, :range) || Map.get(filters, "range"),
@@ -154,7 +172,73 @@ defmodule JidoStudio.Tracing do
     ts = trace_time(trace)
     time_ok = within_time_bounds?(ts, from_ms, to_ms)
 
-    status_ok and agent_ok and time_ok
+    trace_id_ok =
+      case trace_id_filter do
+        nil -> true
+        value -> contains_text?(Map.get(trace, :trace_id) || Map.get(trace, :id), value)
+      end
+
+    incident_ok =
+      case incident_filter do
+        nil -> true
+        value -> contains_text?(Map.get(trace, :incident_id), value)
+      end
+
+    request_ok =
+      case request_filter do
+        nil -> true
+        value -> contains_text?(Map.get(trace, :request_id), value)
+      end
+
+    scope = Map.get(trace, :scope) || %{}
+
+    project_ok =
+      case project_filter do
+        nil ->
+          true
+
+        value ->
+          contains_text?(Map.get(trace, :project_id), value) or
+            contains_text?(Map.get(scope, :project_id) || Map.get(scope, "project_id"), value)
+      end
+
+    user_ok =
+      case user_filter do
+        nil ->
+          true
+
+        value ->
+          contains_text?(Map.get(trace, :user_id), value) or
+            contains_text?(Map.get(scope, :user_id) || Map.get(scope, "user_id"), value)
+      end
+
+    query_ok =
+      case query_filter do
+        nil ->
+          true
+
+        query ->
+          text =
+            [
+              Map.get(trace, :trace_id),
+              Map.get(trace, :id),
+              Map.get(trace, :agent_id),
+              Map.get(trace, :status),
+              Map.get(trace, :incident_id),
+              Map.get(trace, :request_id),
+              Map.get(trace, :workflow_id),
+              Map.get(trace, :action),
+              Map.get(trace, :signal_type)
+            ]
+            |> Enum.map(&to_string(&1 || ""))
+            |> Enum.join(" ")
+            |> String.downcase()
+
+          String.contains?(text, String.downcase(query))
+      end
+
+    status_ok and agent_ok and time_ok and trace_id_ok and incident_ok and request_ok and
+      project_ok and user_ok and query_ok
   end
 
   defp trace_matches_filters?(_, _), do: false
@@ -188,15 +272,26 @@ defmodule JidoStudio.Tracing do
   defp normalize_status_filter(_), do: nil
 
   defp normalize_optional_string(value) when is_binary(value) and value != "", do: value
+  defp normalize_optional_string(nil), do: nil
   defp normalize_optional_string(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_optional_string(_), do: nil
+
+  defp contains_text?(actual, expected) do
+    case {normalize_optional_string(actual), normalize_optional_string(expected)} do
+      {nil, _} -> false
+      {_, nil} -> true
+      {lhs, rhs} -> String.contains?(String.downcase(lhs), String.downcase(rhs))
+    end
+  end
 
   defp time_range_bounds(range, from, to) do
     case normalize_optional_string(range) do
       "15m" -> {now_ms() - :timer.minutes(15), now_ms()}
       "1h" -> {now_ms() - :timer.hours(1), now_ms()}
       "24h" -> {now_ms() - :timer.hours(24), now_ms()}
+      "7d" -> {now_ms() - :timer.hours(24 * 7), now_ms()}
       "custom" -> {parse_datetime_local(from), parse_datetime_local(to)}
+      "all" -> {nil, nil}
       _ -> {now_ms() - :timer.hours(1), now_ms()}
     end
   end

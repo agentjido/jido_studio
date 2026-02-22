@@ -84,6 +84,28 @@ defmodule JidoStudio.IngestorTracingTest do
 
     Ingestor.ingest_event(%{
       trace_id: "trace-abc",
+      span_id: "span-subagent",
+      parent_span_id: "span-root",
+      agent_id: "weather-agent-1",
+      parent_agent_id: "router-agent-1",
+      type: :stop,
+      event_name: "jido.ai.subagent.update",
+      timestamp_ms: t0 + 35,
+      metadata: %{
+        subagent_name: "Weather Worker",
+        subagent_model: "claude-sonnet-4-5",
+        subagent_instructions: "Fetch the weather",
+        subagent_result: "sunny",
+        subagent_messages: [%{role: "assistant", content: "sunny"}],
+        subagent_tools: ["weather.lookup"],
+        subagent_middleware: ["TraceMiddleware"],
+        subagent_token_usage: %{input_tokens: 12, output_tokens: 5},
+        duration_ms: 25
+      }
+    })
+
+    Ingestor.ingest_event(%{
+      trace_id: "trace-abc",
       span_id: "span-root",
       parent_span_id: nil,
       agent_id: "weather-agent-1",
@@ -102,10 +124,11 @@ defmodule JidoStudio.IngestorTracingTest do
     assert trace.duration_ms >= 40
 
     spans = Tracing.list_trace_spans("trace-abc")
-    assert length(spans) == 2
+    assert length(spans) == 3
 
     root = Enum.find(spans, &(&1.span_id == "span-root"))
     child = Enum.find(spans, &(&1.span_id == "span-child"))
+    subagent = Enum.find(spans, &(&1.span_id == "span-subagent"))
 
     assert root.depth == 0
     assert child.depth == 1
@@ -113,16 +136,26 @@ defmodule JidoStudio.IngestorTracingTest do
     assert child.entity_type == "tool"
     assert child.task_id == "task-1"
     assert child.scope[:project_id] == "p1"
+    assert subagent.parent_span_id == "span-root"
 
     events = Tracing.list_trace_events("trace-abc", order: :asc, limit: 10)
-    assert length(events) == 4
-    assert Enum.map(events, & &1.seq) == [1, 2, 3, 4]
+    assert length(events) == 5
+    assert Enum.map(events, & &1.seq) == [1, 2, 3, 4, 5]
 
     assert {:ok, subagent} =
              Persistence.get_doc("subagents", "trace-abc:router-agent-1:weather-agent-1")
 
     assert subagent.parent_agent_id == "router-agent-1"
     assert subagent.agent_id == "weather-agent-1"
+    assert subagent.name == "Weather Worker"
+    assert subagent.model == "claude-sonnet-4-5"
+    assert subagent.instructions == "Fetch the weather"
+    assert subagent.result == "sunny"
+    assert is_list(subagent.messages)
+    assert is_list(subagent.tools)
+    assert is_list(subagent.middleware)
+    assert is_map(subagent.token_usage)
+    assert is_integer(subagent.duration_ms)
 
     assert {:ok, task} = Persistence.get_doc("tasks", "weather-agent-1:task-1")
     assert task.task_status == "ok"

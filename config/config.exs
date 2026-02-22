@@ -7,6 +7,22 @@ config :jido_studio,
     auto_follow_default: true,
     scope_keys: [:project_id, :user_id]
   ],
+  cluster: [
+    enabled: true,
+    rpc_timeout_ms: 3_000,
+    default_scope: :all
+  ],
+  branding: [
+    about_links: [
+      %{label: "Agent Jido", url: "https://agentjido.xyz"},
+      %{label: "LLMDB", url: "https://llmdb.xyz"},
+      %{label: "GitHub", url: "https://github.com/sagents-ai/jido_studio"},
+      %{label: "Community", url: "https://github.com/sagents-ai/jido/discussions"}
+    ],
+    about_tagline: "Observe, understand, and guide your Agents from one place.",
+    support_email: nil,
+    docs_url: "https://agentjido.xyz"
+  ],
   delegation: [
     enabled: true
   ],

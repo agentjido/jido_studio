@@ -2,6 +2,8 @@ defmodule JidoStudio.Layouts do
   @moduledoc false
   use Phoenix.Component
 
+  alias JidoStudio.Cluster.Scope
+
   import Phoenix.HTML
 
   @doc false
@@ -14,6 +16,14 @@ defmodule JidoStudio.Layouts do
       |> assign(:workbench_mode?, workbench_mode?)
       |> assign(:main_class, main_class(workbench_mode?))
       |> assign(:nav_sections, nav_sections(extension_nav_sections))
+      |> assign(:cluster_enabled?, assigns[:cluster_enabled?] != false)
+      |> assign(:cluster_node_param, assigns[:cluster_node_param] || "all")
+      |> assign(:cluster_nodes, assigns[:cluster_nodes] || Scope.dropdown_options())
+      |> assign(:cluster_scope_warning, assigns[:cluster_scope_warning])
+      |> assign(
+        :cluster_status_label,
+        cluster_status_label(assigns[:cluster_nodes], assigns[:cluster_scope_warning])
+      )
 
     ~H"""
     <!DOCTYPE html>
@@ -53,6 +63,11 @@ defmodule JidoStudio.Layouts do
                 var next = current === 'dark' ? 'light' : 'dark';
                 document.documentElement.setAttribute('data-theme', next);
                 localStorage.setItem('jido-studio-theme', next);
+              },
+              setClusterNode: function(nodeValue) {
+                var url = new URL(window.location.href);
+                url.searchParams.set('node', nodeValue || 'all');
+                window.location.assign(url.toString());
               }
             };
           })();
@@ -62,7 +77,16 @@ defmodule JidoStudio.Layouts do
           class="group flex h-[100dvh] max-h-[100dvh] overflow-hidden"
           data-sidebar-state="expanded"
         >
-          <.sidebar current_path={@current_path} prefix={@prefix} nav_sections={@nav_sections} />
+          <.sidebar
+            current_path={@current_path}
+            prefix={@prefix}
+            nav_sections={@nav_sections}
+            cluster_enabled?={@cluster_enabled?}
+            cluster_nodes={@cluster_nodes}
+            cluster_node_param={@cluster_node_param}
+            cluster_status_label={@cluster_status_label}
+            cluster_scope_warning={@cluster_scope_warning}
+          />
           <main class={@main_class}>
             {@inner_content}
           </main>
@@ -105,6 +129,45 @@ defmodule JidoStudio.Layouts do
         </button>
       </div>
 
+      <div
+        :if={@cluster_enabled?}
+        class="px-3 py-2 border-b border-js-sidebar-border group-data-[sidebar-state=collapsed]:hidden"
+      >
+        <label
+          for="studio-cluster-scope"
+          class="text-[11px] uppercase tracking-wider text-js-text-subtle"
+        >
+          Cluster Scope
+        </label>
+        <select
+          id="studio-cluster-scope"
+          onchange="window.jidoStudio.setClusterNode(this.value)"
+          class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1 text-xs text-js-text"
+        >
+          <option
+            :for={option <- @cluster_nodes}
+            value={option.value}
+            selected={option.value == @cluster_node_param}
+          >
+            {option.label}
+          </option>
+        </select>
+
+        <div class={[
+          "mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-[11px]",
+          if(@cluster_scope_warning,
+            do: "bg-js-warning/15 text-js-warning",
+            else: "bg-js-muted text-js-text-muted"
+          )
+        ]}>
+          {@cluster_status_label}
+        </div>
+
+        <p :if={@cluster_scope_warning} class="mt-1 text-[11px] leading-4 text-js-warning">
+          {@cluster_scope_warning}
+        </p>
+      </div>
+
       <%!-- Expand button visible only when collapsed --%>
       <button
         onclick="window.jidoStudio.toggleSidebar()"
@@ -128,6 +191,7 @@ defmodule JidoStudio.Layouts do
               current_path={@current_path}
               prefix={@prefix}
               icon={item.icon}
+              cluster_node_param={@cluster_node_param}
             />
           </nav>
         </div>
@@ -135,14 +199,6 @@ defmodule JidoStudio.Layouts do
 
       <%!-- SidebarFooter --%>
       <div class="border-t border-js-sidebar-border p-2">
-        <.nav_item
-          path="/settings"
-          label="Settings"
-          current_path={@current_path}
-          prefix={@prefix}
-          icon="settings"
-        />
-
         <button
           onclick="window.jidoStudio.toggleTheme()"
           class="relative flex items-center gap-3 px-3 py-2 mx-2 rounded-lg text-sm text-js-text-muted hover:text-js-sidebar-foreground hover:bg-js-sidebar-accent w-[calc(100%-16px)]"
@@ -170,15 +226,21 @@ defmodule JidoStudio.Layouts do
   end
 
   defp nav_item(assigns) do
-    full_path = assigns.prefix <> assigns.path
-    current = assigns.current_path || ""
+    full_path =
+      assigns.prefix
+      |> Kernel.<>(assigns.path)
+      |> normalize_nav_item_path()
+
+    current = normalize_nav_item_path(assigns.current_path || "")
     active = current == full_path or String.starts_with?(current, full_path <> "/")
+    href = Scope.with_scope_query(full_path, assigns.cluster_node_param || "all")
+
     assigns = assign(assigns, :active, active)
-    assigns = assign(assigns, :full_path, full_path)
+    assigns = assign(assigns, :href, href)
 
     ~H"""
     <a
-      href={@full_path}
+      href={@href}
       class={"relative flex items-center gap-3 px-3 py-2 mx-2 rounded-lg text-sm #{if @active, do: "bg-js-sidebar-accent text-js-sidebar-accent-foreground", else: "text-js-text-muted hover:text-js-sidebar-foreground hover:bg-js-sidebar-accent"}"}
     >
       <span
@@ -191,33 +253,45 @@ defmodule JidoStudio.Layouts do
     """
   end
 
+  defp nav_icon(%{name: "home"} = assigns) do
+    ~H"""
+    <Lucideicons.house class="w-[18px] h-[18px] shrink-0" />
+    """
+  end
+
   defp nav_icon(%{name: "agents"} = assigns) do
     ~H"""
     <Lucideicons.users class="w-[18px] h-[18px] shrink-0" />
     """
   end
 
-  defp nav_icon(%{name: "registry"} = assigns) do
+  defp nav_icon(%{name: "catalog"} = assigns) do
     ~H"""
-    <Lucideicons.zap class="w-[18px] h-[18px] shrink-0" />
+    <Lucideicons.book_open class="w-[18px] h-[18px] shrink-0" />
     """
   end
 
-  defp nav_icon(%{name: "threads"} = assigns) do
-    ~H"""
-    <Lucideicons.git_branch class="w-[18px] h-[18px] shrink-0" />
-    """
-  end
-
-  defp nav_icon(%{name: "traces"} = assigns) do
+  defp nav_icon(%{name: "activity"} = assigns) do
     ~H"""
     <Lucideicons.activity class="w-[18px] h-[18px] shrink-0" />
+    """
+  end
+
+  defp nav_icon(%{name: "diagnostics"} = assigns) do
+    ~H"""
+    <Lucideicons.stethoscope class="w-[18px] h-[18px] shrink-0" />
     """
   end
 
   defp nav_icon(%{name: "settings"} = assigns) do
     ~H"""
     <Lucideicons.settings class="w-[18px] h-[18px] shrink-0" />
+    """
+  end
+
+  defp nav_icon(%{name: "about"} = assigns) do
+    ~H"""
+    <Lucideicons.info class="w-[18px] h-[18px] shrink-0" />
     """
   end
 
@@ -242,10 +316,13 @@ defmodule JidoStudio.Layouts do
       id: :core,
       label: "Navigation",
       items: [
+        %{path: "/", label: "Home", icon: "home"},
         %{path: "/agents", label: "Agents", icon: "agents"},
-        %{path: "/registry", label: "Registry", icon: "registry"},
-        %{path: "/threads", label: "Threads", icon: "threads"},
-        %{path: "/traces", label: "Traces", icon: "traces"}
+        %{path: "/catalog", label: "Catalog", icon: "catalog"},
+        %{path: "/activity", label: "Activity", icon: "activity"},
+        %{path: "/diagnostics", label: "Diagnostics", icon: "diagnostics"},
+        %{path: "/settings", label: "Settings", icon: "settings"},
+        %{path: "/about", label: "About", icon: "about"}
       ]
     }
   end
@@ -292,6 +369,23 @@ defmodule JidoStudio.Layouts do
 
   defp normalize_nav_item(_), do: []
 
+  defp cluster_status_label(options, warning) when is_list(options) do
+    node_count = Enum.count(options, &(&1[:value] != "all"))
+
+    cond do
+      warning ->
+        "Scope fallback"
+
+      node_count <= 1 ->
+        "Single Node"
+
+      true ->
+        "Cluster: #{node_count} nodes"
+    end
+  end
+
+  defp cluster_status_label(_, _), do: "Single Node"
+
   defp jido_version do
     case Application.spec(:jido, :vsn) do
       nil -> JidoStudio.version()
@@ -334,4 +428,22 @@ defmodule JidoStudio.Layouts do
   end
 
   defp strip_prefix(path, _prefix), do: path
+
+  defp normalize_nav_item_path(path) when is_binary(path) do
+    normalized =
+      path
+      |> String.trim()
+      |> case do
+        "" -> "/"
+        value -> value
+      end
+
+    if normalized == "/" do
+      "/"
+    else
+      String.trim_trailing(normalized, "/")
+    end
+  end
+
+  defp normalize_nav_item_path(_), do: "/"
 end

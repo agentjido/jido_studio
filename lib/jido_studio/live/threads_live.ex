@@ -4,6 +4,7 @@ defmodule JidoStudio.ThreadsLive do
 
   import JidoStudio.Components
 
+  alias JidoStudio.Cluster.Scope
   alias JidoStudio.Threads
 
   @impl true
@@ -264,8 +265,16 @@ defmodule JidoStudio.ThreadsLive do
     """
   end
 
-  defp list_path(prefix, ""), do: prefix <> "/threads"
-  defp list_path(prefix, query), do: prefix <> "/threads?" <> URI.encode_query(%{"q" => query})
+  defp list_path(prefix, "") do
+    Scope.with_scope_query(prefix <> "/threads", Scope.current_node_param())
+  end
+
+  defp list_path(prefix, query) do
+    Scope.with_scope_query(
+      prefix <> "/threads?" <> URI.encode_query(%{"q" => query}),
+      Scope.current_node_param()
+    )
+  end
 
   defp detail_path(prefix, thread, query) do
     base =
@@ -278,9 +287,12 @@ defmodule JidoStudio.ThreadsLive do
         URI.encode_www_form(thread.thread_id)
 
     if query == "" do
-      base
+      Scope.with_scope_query(base, Scope.current_node_param())
     else
-      base <> "?" <> URI.encode_query(%{"q" => query})
+      Scope.with_scope_query(
+        base <> "?" <> URI.encode_query(%{"q" => query}),
+        Scope.current_node_param()
+      )
     end
   end
 
@@ -290,7 +302,12 @@ defmodule JidoStudio.ThreadsLive do
 
   defp query_path(prefix, query, _action, _thread), do: list_path(prefix, query)
 
-  defp trace_path(prefix, trace_id), do: prefix <> "/traces/" <> URI.encode_www_form(trace_id)
+  defp trace_path(prefix, trace_id) do
+    Scope.with_scope_query(
+      prefix <> "/traces/" <> URI.encode_www_form(trace_id),
+      Scope.current_node_param()
+    )
+  end
 
   defp decode_segment(value) when is_binary(value), do: URI.decode_www_form(value)
   defp decode_segment(_), do: ""

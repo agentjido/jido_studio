@@ -4,7 +4,9 @@ defmodule JidoStudio.TracesLive do
 
   import JidoStudio.Components
 
+  alias JidoStudio.Cluster.Scope
   alias JidoStudio.Evals
+  alias JidoStudio.Observability.Incidents
   alias JidoStudio.TraceFilter
   alias JidoStudio.Tracing
 
@@ -26,6 +28,8 @@ defmodule JidoStudio.TracesLive do
       |> assign(:events, [])
       |> assign(:entity_rollups, [])
       |> assign(:eval_runs, [])
+      |> assign(:incident, nil)
+      |> assign(:incident_timeline, [])
       |> assign(:eval_enabled?, Evals.evals_enabled_for_ui?())
       |> assign(:entity_types, @entity_types)
       |> assign(:available_agents, [])
@@ -51,6 +55,7 @@ defmodule JidoStudio.TracesLive do
       |> assign(:filters, filters)
       |> assign(:traces, traces)
       |> assign(:available_agents, available_agents)
+      |> assign_incident_context(filters)
 
     case socket.assigns.live_action do
       :show ->
@@ -82,7 +87,8 @@ defmodule JidoStudio.TracesLive do
              |> assign(:spans, spans)
              |> assign(:events, events)
              |> assign(:entity_rollups, rollups)
-             |> assign(:eval_runs, eval_runs)}
+             |> assign(:eval_runs, eval_runs)
+             |> maybe_assign_trace_incident(trace)}
 
           _ ->
             {:noreply,
@@ -92,7 +98,9 @@ defmodule JidoStudio.TracesLive do
              |> assign(:spans, [])
              |> assign(:events, [])
              |> assign(:entity_rollups, [])
-             |> assign(:eval_runs, [])}
+             |> assign(:eval_runs, [])
+             |> assign(:incident, nil)
+             |> assign(:incident_timeline, [])}
         end
 
       _ ->
@@ -102,7 +110,9 @@ defmodule JidoStudio.TracesLive do
          |> assign(:spans, [])
          |> assign(:events, [])
          |> assign(:entity_rollups, [])
-         |> assign(:eval_runs, [])}
+         |> assign(:eval_runs, [])
+         |> assign(:incident, nil)
+         |> assign(:incident_timeline, [])}
     end
   end
 
@@ -166,6 +176,7 @@ defmodule JidoStudio.TracesLive do
         |> Enum.uniq()
         |> Enum.sort()
       )
+      |> assign_incident_context(filters)
 
     socket =
       if socket.assigns.live_action == :show and socket.assigns.trace do
@@ -193,6 +204,7 @@ defmodule JidoStudio.TracesLive do
         )
         |> assign(:entity_rollups, Tracing.trace_entity_rollups(trace_id, filters: trace_filters))
         |> assign(:eval_runs, Evals.list_runs(trace_id, limit: 10))
+        |> maybe_assign_trace_incident(trace)
       else
         socket
       end
@@ -310,11 +322,36 @@ defmodule JidoStudio.TracesLive do
                 <code>{@trace.causation_id || "—"}</code>
               </div>
               <div>
+                <span class="text-js-text-subtle">Incident:</span>
+                <code>{@trace.incident_id || (@incident && @incident.incident_id) || "—"}</code>
+              </div>
+              <div>
+                <span class="text-js-text-subtle">Request:</span>
+                <code>{@trace.request_id || "—"}</code>
+              </div>
+              <div>
+                <span class="text-js-text-subtle">Project/User:</span>
+                <code>{@trace.project_id || "—"} / {@trace.user_id || "—"}</code>
+              </div>
+              <div>
                 <span class="text-js-text-subtle">Spans:</span> {@trace.span_count || length(@spans)}
               </div>
               <div>
                 <span class="text-js-text-subtle">Events:</span> {@trace.event_count ||
                   length(@events)}
+              </div>
+              <div :if={@trace.incident_id || @incident}>
+                <.link
+                  navigate={
+                    list_path(
+                      @prefix,
+                      Map.put(@filters, :incident_id, @trace.incident_id || @incident.incident_id)
+                    )
+                  }
+                  class="text-xs text-js-info hover:text-js-text"
+                >
+                  Open Incident Hub
+                </.link>
               </div>
               <div :if={@eval_runs != []}>
                 <span class="text-js-text-subtle">Last Eval:</span>
@@ -478,7 +515,10 @@ defmodule JidoStudio.TracesLive do
       </.page_header>
 
       <.card>
-        <form phx-change="filters_change" class="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-2">
+        <form
+          phx-change="filters_change"
+          class="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-10 gap-2"
+        >
           <label class="text-xs text-js-text-muted">
             Agent
             <select
@@ -543,6 +583,50 @@ defmodule JidoStudio.TracesLive do
           </label>
 
           <label class="text-xs text-js-text-muted">
+            Incident
+            <input
+              type="text"
+              name="filters[incident_id]"
+              value={@filters.incident_id || ""}
+              placeholder="trace:..."
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+
+          <label class="text-xs text-js-text-muted">
+            Request
+            <input
+              type="text"
+              name="filters[request_id]"
+              value={@filters.request_id || ""}
+              placeholder="req-id"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+
+          <label class="text-xs text-js-text-muted">
+            Project
+            <input
+              type="text"
+              name="filters[project_id]"
+              value={@filters.project_id || ""}
+              placeholder="project scope"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+
+          <label class="text-xs text-js-text-muted">
+            User
+            <input
+              type="text"
+              name="filters[user_id]"
+              value={@filters.user_id || ""}
+              placeholder="user scope"
+              class="mt-1 w-full rounded-md border border-js-border bg-js-bg-elevated px-2 py-1.5 text-xs text-js-text"
+            />
+          </label>
+
+          <label class="text-xs text-js-text-muted">
             Span/Event Query
             <input
               type="text"
@@ -593,6 +677,46 @@ defmodule JidoStudio.TracesLive do
         </form>
       </.card>
 
+      <.card :if={@incident}>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="space-y-1">
+            <h3 class="text-sm font-medium text-js-text">Incident Context</h3>
+            <p class="text-xs text-js-text-muted font-mono">
+              {@incident.incident_id} / status {@incident.status || "running"} / events {@incident.event_count ||
+                0}
+            </p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <.badge variant={if(@incident.error_count > 0, do: :warning, else: :default)}>
+              errors {@incident.error_count || 0}
+            </.badge>
+            <.badge variant={:default}>traces {length(@incident.trace_ids || [])}</.badge>
+          </div>
+        </div>
+
+        <div
+          :if={@incident_timeline != []}
+          class="mt-3 space-y-1.5 max-h-52 overflow-y-auto js-scroll"
+        >
+          <div
+            :for={event <- Enum.take(@incident_timeline, -12)}
+            class="rounded-md border border-js-border bg-js-bg-elevated/40 px-2 py-1.5"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-[11px] font-mono text-js-text-subtle">
+                {format_timestamp(event.ts || event.timestamp_ms)}
+              </span>
+              <.badge variant={event_badge_variant(event.status || event.type)}>
+                {event.status || event.type || "event"}
+              </.badge>
+            </div>
+            <div class="mt-1 text-[11px] text-js-text font-mono truncate">
+              {event.event_name || event.action || event.signal_type || "event"}
+            </div>
+          </div>
+        </div>
+      </.card>
+
       <.card :if={@traces == []}>
         <.empty_state
           title="No traces"
@@ -613,6 +737,9 @@ defmodule JidoStudio.TracesLive do
                 </th>
                 <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
                   Status
+                </th>
+                <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
+                  Incident
                 </th>
                 <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-js-text-muted">
                   Started
@@ -639,6 +766,9 @@ defmodule JidoStudio.TracesLive do
                   </.badge>
                 </td>
                 <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">
+                  {trace.incident_id || "—"}
+                </td>
+                <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">
                   {format_datetime(trace.started_at)}
                 </td>
                 <td class="px-3 py-2 text-xs text-js-text-subtle font-mono">
@@ -663,6 +793,11 @@ defmodule JidoStudio.TracesLive do
       range: @default_range,
       from: nil,
       to: nil,
+      incident_id: nil,
+      trace_id: nil,
+      request_id: nil,
+      project_id: nil,
+      user_id: nil,
       query: nil,
       entity_type: "all",
       hide_internal: TraceFilter.hide_internal_default?(),
@@ -690,6 +825,11 @@ defmodule JidoStudio.TracesLive do
       range: normalize_range(source["range"]),
       from: normalize_optional_string(source["from"]),
       to: normalize_optional_string(source["to"]),
+      incident_id: normalize_optional_string(source["incident_id"]),
+      trace_id: normalize_optional_string(source["trace_id"]),
+      request_id: normalize_optional_string(source["request_id"]),
+      project_id: normalize_optional_string(source["project_id"]),
+      user_id: normalize_optional_string(source["user_id"]),
       query: normalize_optional_string(source["query"]),
       entity_type: normalize_entity_type(source["entity_type"]),
       hide_internal:
@@ -723,9 +863,9 @@ defmodule JidoStudio.TracesLive do
     params = filter_query_params(filters)
 
     if map_size(params) == 0 do
-      prefix <> "/traces"
+      scoped_path(prefix <> "/traces")
     else
-      prefix <> "/traces?" <> URI.encode_query(params)
+      scoped_path(prefix <> "/traces?" <> URI.encode_query(params))
     end
   end
 
@@ -734,10 +874,14 @@ defmodule JidoStudio.TracesLive do
     params = filter_query_params(filters)
 
     if map_size(params) == 0 do
-      base
+      scoped_path(base)
     else
-      base <> "?" <> URI.encode_query(params)
+      scoped_path(base <> "?" <> URI.encode_query(params))
     end
+  end
+
+  defp scoped_path(path) do
+    Scope.with_scope_query(path, Scope.current_node_param())
   end
 
   defp filter_query_params(filters) do
@@ -747,6 +891,11 @@ defmodule JidoStudio.TracesLive do
     |> maybe_put("range", if(filters.range == @default_range, do: nil, else: filters.range))
     |> maybe_put("from", if(filters.range == "custom", do: filters.from, else: nil))
     |> maybe_put("to", if(filters.range == "custom", do: filters.to, else: nil))
+    |> maybe_put("incident_id", filters.incident_id)
+    |> maybe_put("trace_id", filters.trace_id)
+    |> maybe_put("request_id", filters.request_id)
+    |> maybe_put("project_id", filters.project_id)
+    |> maybe_put("user_id", filters.user_id)
     |> maybe_put("query", filters.query)
     |> maybe_put(
       "entity_type",
@@ -774,9 +923,72 @@ defmodule JidoStudio.TracesLive do
       entity_type: if(filters.entity_type in [nil, "all"], do: nil, else: filters.entity_type),
       status: if(filters.status in [nil, "all"], do: nil, else: filters.status),
       stream_only: filters.stream_only,
-      query: filters.query
+      query: filters.query,
+      incident_id: filters.incident_id,
+      trace_id: filters.trace_id,
+      request_id: filters.request_id,
+      project_id: filters.project_id,
+      user_id: filters.user_id
     }
   end
+
+  defp assign_incident_context(socket, filters) when is_map(filters) do
+    incident_id = normalize_optional_string(filters.incident_id)
+
+    case incident_id do
+      nil ->
+        socket
+        |> assign(:incident, nil)
+        |> assign(:incident_timeline, [])
+
+      id ->
+        incident =
+          Incidents.list_incidents(%{incident_id: id, range: "all"}, 1)
+          |> List.first()
+
+        timeline =
+          if incident do
+            Incidents.incident_timeline(id, %{
+              range: filters.range,
+              query: filters.query,
+              limit: 80
+            })
+          else
+            []
+          end
+
+        socket
+        |> assign(:incident, incident)
+        |> assign(:incident_timeline, timeline)
+    end
+  end
+
+  defp assign_incident_context(socket, _), do: socket
+
+  defp maybe_assign_trace_incident(socket, trace) when is_map(trace) do
+    incident_id = normalize_optional_string(trace[:incident_id] || trace["incident_id"])
+
+    if is_binary(incident_id) do
+      incident =
+        Incidents.list_incidents(%{incident_id: incident_id, range: "all"}, 1)
+        |> List.first()
+
+      timeline =
+        Incidents.incident_timeline(incident_id, %{
+          range: socket.assigns.filters.range,
+          query: socket.assigns.filters.query,
+          limit: 80
+        })
+
+      socket
+      |> assign(:incident, incident)
+      |> assign(:incident_timeline, timeline)
+    else
+      socket
+    end
+  end
+
+  defp maybe_assign_trace_incident(socket, _trace), do: socket
 
   defp event_name(event) when is_map(event) do
     cond do
@@ -794,6 +1006,9 @@ defmodule JidoStudio.TracesLive do
   defp event_badge_variant("exception"), do: :error
   defp event_badge_variant("stop"), do: :success
   defp event_badge_variant("start"), do: :info
+  defp event_badge_variant("error"), do: :error
+  defp event_badge_variant("ok"), do: :success
+  defp event_badge_variant("running"), do: :info
   defp event_badge_variant(_), do: :default
 
   defp span_badge_variant("error"), do: :error
@@ -860,6 +1075,7 @@ defmodule JidoStudio.TracesLive do
     if normalized == "", do: nil, else: normalized
   end
 
+  defp normalize_optional_string(nil), do: nil
   defp normalize_optional_string(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_optional_string(_), do: nil
 end

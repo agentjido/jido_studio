@@ -49,11 +49,13 @@ defmodule JidoStudio.ThreadsManagerTest do
     state = Session.resolve_assistant_reply(state, pending_id, "world")
 
     context = %{state.active_thread_id => %{iteration: 2, model: "anthropic:claude-haiku-4-5"}}
+    interaction_history = %{"instance-b" => [%{signal_type: "demo.ping", mode: :sync}]}
 
     assert :ok =
              Manager.save_workspace("weather", "instance-b", state,
                draft_message: "draft",
                thread_contexts: context,
+               interaction_history: interaction_history,
                instance_binding: %{agent_slug: "weather"}
              )
 
@@ -61,6 +63,7 @@ defmodule JidoStudio.ThreadsManagerTest do
     assert payload.source == :persisted
     assert payload.draft_message == "draft"
     assert payload.thread_contexts[state.active_thread_id][:iteration] == 2
+    assert [%{signal_type: "demo.ping"}] = payload.interaction_history["instance-b"]
 
     messages = Map.get(payload.chat_state.messages_by_thread, state.active_thread_id)
     assert Enum.map(messages, & &1[:role]) == [:user, :assistant]

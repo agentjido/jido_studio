@@ -23,6 +23,27 @@ defmodule JidoStudio.LiveOps do
     config(:enabled, true) != false
   end
 
+  @spec event_stream_limit() :: pos_integer()
+  def event_stream_limit do
+    case config(:event_stream_limit, 100) do
+      value when is_integer(value) and value > 0 -> value
+      _ -> 100
+    end
+  end
+
+  @spec agent_list_poll_ms() :: pos_integer()
+  def agent_list_poll_ms do
+    case config(:agent_list_poll_ms, 2_000) do
+      value when is_integer(value) and value > 0 -> value
+      _ -> 2_000
+    end
+  end
+
+  @spec viewer_tracking?() :: boolean()
+  def viewer_tracking? do
+    config(:viewer_tracking, true) != false
+  end
+
   @spec auto_follow_default?() :: boolean()
   def auto_follow_default? do
     config(:auto_follow_default, true) == true
@@ -64,6 +85,84 @@ defmodule JidoStudio.LiveOps do
   end
 
   def subscribe_agent(_, _), do: :ok
+
+  @spec viewer_topic(String.t()) :: String.t()
+  def viewer_topic(instance_id) when is_binary(instance_id) do
+    "live_ops:viewers:" <> instance_id
+  end
+
+  def viewer_topic(_), do: "live_ops:viewers:unknown"
+
+  @spec subscribe_viewers(String.t()) :: :ok
+  def subscribe_viewers(instance_id) when is_binary(instance_id) and instance_id != "" do
+    with true <- enabled?(),
+         true <- viewer_tracking?(),
+         {:ok, pubsub} <- resolve_pubsub() do
+      Phoenix.PubSub.subscribe(pubsub, viewer_topic(instance_id))
+    else
+      _ -> :ok
+    end
+  end
+
+  def subscribe_viewers(_), do: :ok
+
+  @spec track_viewer(String.t(), String.t(), map()) :: :ok
+  def track_viewer(instance_id, viewer_id, metadata \\ %{})
+
+  def track_viewer(instance_id, viewer_id, metadata)
+      when is_binary(instance_id) and instance_id != "" and is_binary(viewer_id) and
+             viewer_id != "" do
+    with true <- enabled?(),
+         true <- viewer_tracking?(),
+         module when is_atom(module) <- config(:presence_module, nil),
+         true <- Code.ensure_loaded?(module),
+         true <- function_exported?(module, :track, 4) do
+      topic = viewer_topic(instance_id)
+      safe_metadata = normalize_viewer_metadata(metadata)
+      _ = module.track(self(), topic, viewer_id, safe_metadata)
+      :ok
+    else
+      _ -> :ok
+    end
+  end
+
+  def track_viewer(_, _, _), do: :ok
+
+  @spec untrack_viewer(String.t(), String.t()) :: :ok
+  def untrack_viewer(instance_id, viewer_id)
+      when is_binary(instance_id) and instance_id != "" and is_binary(viewer_id) and
+             viewer_id != "" do
+    with true <- enabled?(),
+         true <- viewer_tracking?(),
+         module when is_atom(module) <- config(:presence_module, nil),
+         true <- Code.ensure_loaded?(module),
+         true <- function_exported?(module, :untrack, 3) do
+      _ = module.untrack(self(), viewer_topic(instance_id), viewer_id)
+      :ok
+    else
+      _ -> :ok
+    end
+  end
+
+  def untrack_viewer(_, _), do: :ok
+
+  @spec viewer_count(String.t()) :: non_neg_integer()
+  def viewer_count(instance_id) when is_binary(instance_id) and instance_id != "" do
+    with true <- enabled?(),
+         true <- viewer_tracking?(),
+         module when is_atom(module) <- config(:presence_module, nil),
+         true <- Code.ensure_loaded?(module),
+         true <- function_exported?(module, :list, 1),
+         presences when is_map(presences) <- module.list(viewer_topic(instance_id)) do
+      map_size(presences)
+    else
+      _ -> 0
+    end
+  rescue
+    _ -> 0
+  end
+
+  def viewer_count(_), do: 0
 
   @spec broadcast_agent_list(map(), keyword() | map()) :: :ok
   def broadcast_agent_list(payload, scope \\ %{})
@@ -179,4 +278,12 @@ defmodule JidoStudio.LiveOps do
     |> Application.get_env(:live_ops, [])
     |> Keyword.get(key, default)
   end
+
+  defp normalize_viewer_metadata(metadata) when is_map(metadata) do
+    metadata
+    |> Map.put_new(:connected_at, DateTime.utc_now())
+    |> Map.put_new(:node, node())
+  end
+
+  defp normalize_viewer_metadata(_), do: %{connected_at: DateTime.utc_now(), node: node()}
 end

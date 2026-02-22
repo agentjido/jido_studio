@@ -41,6 +41,9 @@ defmodule JidoStudio.ThreadsCodecTest do
           thread.id => %{journal_rev: 4, message_hashes: %{"msg_1" => "abc"}}
         },
         thread_contexts: %{thread.id => %{iteration: 2, model: "anthropic:claude-haiku-4-5"}},
+        interaction_history: %{
+          "inst-1" => [%{signal_type: "demo.ping", mode: :sync, timestamp_ms: 1_234}]
+        },
         instance_binding: %{agent_slug: "weather", instance_id: "inst-1"}
       )
 
@@ -49,6 +52,7 @@ defmodule JidoStudio.ThreadsCodecTest do
     assert decoded.active_thread_id == thread.id
     assert decoded.draft_message == "draft"
     assert decoded.instance_binding[:agent_slug] == "weather"
+    assert [%{signal_type: "demo.ping"}] = decoded.interaction_history["inst-1"]
 
     [decoded_thread] = decoded.threads
     assert decoded_thread.journal_rev == 4

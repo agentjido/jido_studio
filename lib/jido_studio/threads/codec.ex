@@ -26,6 +26,7 @@ defmodule JidoStudio.Threads.Codec do
     thread_records = Keyword.get(opts, :thread_records, %{})
     draft_message = Keyword.get(opts, :draft_message, "")
     thread_contexts = Keyword.get(opts, :thread_contexts, %{})
+    interaction_history = Keyword.get(opts, :interaction_history, %{})
     instance_binding = Keyword.get(opts, :instance_binding, %{})
     updated_at = Keyword.get(opts, :updated_at, now_ms())
 
@@ -36,6 +37,7 @@ defmodule JidoStudio.Threads.Codec do
       updated_at: updated_at,
       instance_binding: normalize_map(instance_binding),
       thread_contexts: normalize_map(thread_contexts),
+      interaction_history: normalize_interaction_history(interaction_history),
       threads:
         Enum.map(state.threads, fn thread ->
           thread_record = Map.get(thread_records, thread.id, %{})
@@ -79,6 +81,11 @@ defmodule JidoStudio.Threads.Codec do
       thread_contexts:
         normalize_map(
           Map.get(checkpoint, :thread_contexts) || Map.get(checkpoint, "thread_contexts") || %{}
+        ),
+      interaction_history:
+        normalize_interaction_history(
+          Map.get(checkpoint, :interaction_history) ||
+            Map.get(checkpoint, "interaction_history") || %{}
         ),
       threads:
         normalize_thread_records(
@@ -181,6 +188,7 @@ defmodule JidoStudio.Threads.Codec do
       chat_state: Session.empty(),
       draft_message: "",
       thread_contexts: %{},
+      interaction_history: %{},
       source: :fresh,
       instance_binding: %{}
     }
@@ -192,6 +200,8 @@ defmodule JidoStudio.Threads.Codec do
       chat_state: chat_state,
       draft_message: normalize_optional_binary(Map.get(decoded_checkpoint, :draft_message) || ""),
       thread_contexts: normalize_map(Map.get(decoded_checkpoint, :thread_contexts) || %{}),
+      interaction_history:
+        normalize_interaction_history(Map.get(decoded_checkpoint, :interaction_history) || %{}),
       source: :persisted,
       instance_binding:
         normalize_map(Map.get(decoded_checkpoint, :instance_binding) || %{})
@@ -345,6 +355,29 @@ defmodule JidoStudio.Threads.Codec do
   end
 
   defp normalize_hashes(_), do: %{}
+
+  defp normalize_interaction_history(history) when is_map(history) do
+    Enum.reduce(history, %{}, fn {instance_id, entries}, acc ->
+      key = normalize_optional_binary(instance_id)
+
+      if key != "" do
+        Map.put(acc, key, normalize_interaction_entries(entries))
+      else
+        acc
+      end
+    end)
+  end
+
+  defp normalize_interaction_history(_), do: %{}
+
+  defp normalize_interaction_entries(entries) when is_list(entries) do
+    entries
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(&Storage.sanitize_term/1)
+    |> Enum.take(200)
+  end
+
+  defp normalize_interaction_entries(_), do: []
 
   defp normalize_map(map) when is_map(map), do: Storage.sanitize_term(map)
   defp normalize_map(_), do: %{}

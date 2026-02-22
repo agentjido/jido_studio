@@ -7,7 +7,8 @@ defmodule JidoStudio.AgentRegistry do
   view of all agents in the system.
   """
 
-  require Logger
+  alias JidoStudio.Cluster.RPC
+  alias JidoStudio.Cluster.Scope
   alias JidoStudio.Naming
 
   @type agent_info :: %{
@@ -24,6 +25,7 @@ defmodule JidoStudio.AgentRegistry do
         }
 
   @type instance_info :: %{
+          optional(:node) => node(),
           id: String.t(),
           pid: pid()
         }
@@ -51,10 +53,33 @@ defmodule JidoStudio.AgentRegistry do
   ## Options
 
   - `:jido_instance` - Override the configured Jido instance module
+  - `:scope` - `:all` (default) or `{:node, node}`
   """
   @spec list_agents(keyword()) :: [agent_info()]
   def list_agents(opts \\ []) do
-    discovered = list_discovered_agents()
+    scope = Keyword.get(opts, :scope, Scope.default_scope()) |> Scope.normalize_scope()
+    local_opts = Keyword.delete(opts, :scope)
+
+    case scope do
+      :all ->
+        list_agents_all_nodes(local_opts)
+
+      {:node, node} ->
+        if node == Node.self() do
+          list_agents_local(local_opts)
+        else
+          case RPC.call({:node, node}, __MODULE__, :list_agents_local, [local_opts]) do
+            {:ok, agents} when is_list(agents) -> annotate_node(agents, node)
+            _ -> []
+          end
+        end
+    end
+  end
+
+  @doc false
+  @spec list_agents_local(keyword()) :: [agent_info()]
+  def list_agents_local(opts \\ []) do
+    discovered = list_discovered_agents_local()
     instance = jido_instance(opts)
     running = list_running_agents(instance)
 
@@ -98,8 +123,29 @@ defmodule JidoStudio.AgentRegistry do
   These are agent modules compiled into the release, regardless of
   whether they are currently running.
   """
-  @spec list_discovered_agents() :: [agent_info()]
-  def list_discovered_agents do
+  @spec list_discovered_agents(keyword()) :: [agent_info()]
+  def list_discovered_agents(opts \\ []) do
+    scope = Keyword.get(opts, :scope, Scope.default_scope()) |> Scope.normalize_scope()
+
+    case scope do
+      :all ->
+        list_discovered_agents_all_nodes()
+
+      {:node, node} ->
+        if node == Node.self() do
+          list_discovered_agents_local()
+        else
+          case RPC.call({:node, node}, __MODULE__, :list_discovered_agents_local, []) do
+            {:ok, agents} when is_list(agents) -> agents
+            _ -> []
+          end
+        end
+    end
+  end
+
+  @doc false
+  @spec list_discovered_agents_local() :: [agent_info()]
+  def list_discovered_agents_local do
     discovered = list_discovered_agents_from_catalog()
     fallback = list_discovered_agents_from_behaviour()
 
@@ -123,15 +169,150 @@ defmodule JidoStudio.AgentRegistry do
   @doc """
   Returns the count of running agents for a Jido instance.
   """
-  @spec running_count(module() | nil) :: non_neg_integer()
-  def running_count(nil), do: 0
+  @spec running_count(module() | nil, keyword()) :: non_neg_integer()
+  def running_count(jido_instance, opts \\ []) do
+    scope = Keyword.get(opts, :scope, Scope.default_scope()) |> Scope.normalize_scope()
 
-  def running_count(jido_instance) do
+    case scope do
+      :all ->
+        Scope.available_nodes()
+        |> Enum.map(&running_count_for_node(&1, jido_instance))
+        |> Enum.sum()
+
+      {:node, node} ->
+        if node == Node.self() do
+          running_count_local(jido_instance)
+        else
+          running_count_for_node(node, jido_instance)
+        end
+    end
+  end
+
+  @doc false
+  @spec running_count_local(module() | nil) :: non_neg_integer()
+  def running_count_local(nil), do: 0
+
+  def running_count_local(jido_instance) do
     Jido.agent_count(jido_instance)
   rescue
     _ -> 0
   catch
     :exit, _ -> 0
+  end
+
+  defp list_agents_all_nodes(opts) do
+    Scope.available_nodes()
+    |> Enum.flat_map(fn node ->
+      case list_agents_for_node(node, opts) do
+        agents when is_list(agents) -> annotate_node(agents, node)
+        _ -> []
+      end
+    end)
+    |> merge_cluster_agents()
+    |> Enum.sort_by(fn a -> {status_sort(a.status), a.name} end)
+  end
+
+  defp list_discovered_agents_all_nodes do
+    Scope.available_nodes()
+    |> Enum.flat_map(fn node ->
+      case list_discovered_for_node(node) do
+        agents when is_list(agents) -> agents
+        _ -> []
+      end
+    end)
+    |> Enum.reduce(%{}, fn agent, acc ->
+      Map.update(acc, agent.module, agent, &merge_cluster_agent_metadata(&1, agent))
+    end)
+    |> Map.values()
+    |> Enum.sort_by(& &1.name)
+  end
+
+  defp list_agents_for_node(node, opts) do
+    if node == Node.self() do
+      list_agents_local(opts)
+    else
+      case RPC.call({:node, node}, __MODULE__, :list_agents_local, [opts]) do
+        {:ok, agents} when is_list(agents) -> agents
+        _ -> []
+      end
+    end
+  end
+
+  defp list_discovered_for_node(node) do
+    if node == Node.self() do
+      list_discovered_agents_local()
+    else
+      case RPC.call({:node, node}, __MODULE__, :list_discovered_agents_local, []) do
+        {:ok, agents} when is_list(agents) -> agents
+        _ -> []
+      end
+    end
+  end
+
+  defp running_count_for_node(node, jido_instance) do
+    if node == Node.self() do
+      running_count_local(jido_instance)
+    else
+      case RPC.call({:node, node}, __MODULE__, :running_count_local, [jido_instance]) do
+        {:ok, count} when is_integer(count) and count >= 0 -> count
+        _ -> 0
+      end
+    end
+  end
+
+  defp annotate_node(agents, node) when is_list(agents) do
+    Enum.map(agents, fn agent ->
+      running_instances =
+        Enum.map(agent.running_instances || [], fn instance ->
+          Map.put_new(instance, :node, node)
+        end)
+
+      Map.put(agent, :running_instances, running_instances)
+    end)
+  end
+
+  defp merge_cluster_agents(agents) do
+    agents
+    |> Enum.reduce(%{}, fn agent, acc ->
+      Map.update(acc, agent.module, agent, fn existing ->
+        merge_cluster_agent(existing, agent)
+      end)
+    end)
+    |> Map.values()
+  end
+
+  defp merge_cluster_agent(left, right) do
+    running_instances =
+      merge_running_instances(left.running_instances || [], right.running_instances || [])
+
+    left
+    |> merge_cluster_agent_metadata(right)
+    |> Map.put(:running_instances, running_instances)
+    |> Map.put(:status, if(running_instances == [], do: :available, else: :running))
+  end
+
+  defp merge_cluster_agent_metadata(left, right) do
+    %{
+      left
+      | name: present_value(left.name, right.name),
+        description: present_value(left.description, right.description),
+        slug: present_value(left.slug, right.slug),
+        category: present_value(left.category, right.category),
+        tags: Enum.uniq(List.wrap(left.tags) ++ List.wrap(right.tags))
+    }
+  end
+
+  defp present_value(value, fallback) when value in [nil, ""], do: fallback
+  defp present_value(value, _fallback), do: value
+
+  defp merge_running_instances(left, right) do
+    (left ++ right)
+    |> Enum.reduce(%{}, fn instance, acc ->
+      key = {instance.id, Map.get(instance, :node)}
+      Map.put(acc, key, instance)
+    end)
+    |> Map.values()
+    |> Enum.sort_by(fn instance -> {Map.get(instance, :node) || Node.self(), instance.id} end)
   end
 
   defp merge_agents(discovered, running) do
@@ -143,18 +324,31 @@ defmodule JidoStudio.AgentRegistry do
         end
       end)
 
-    discovered
-    |> Enum.map(fn agent ->
-      instances = Map.get(running_map, agent.module, [])
+    discovered_modules = MapSet.new(discovered, & &1.module)
 
-      %{
-        agent
-        | status: if(instances == [], do: :available, else: :running),
-          running_instances: instances,
-          pid: nil,
-          id: nil
-      }
-    end)
+    discovered_agents =
+      Enum.map(discovered, fn agent ->
+        instances = Map.get(running_map, agent.module, [])
+
+        %{
+          agent
+          | status: if(instances == [], do: :available, else: :running),
+            running_instances: instances,
+            pid: nil,
+            id: nil
+        }
+      end)
+
+    running_only_agents =
+      running_map
+      |> Enum.reject(fn {module, _instances} -> MapSet.member?(discovered_modules, module) end)
+      |> Enum.map(fn {module, instances} ->
+        module_to_agent_info(module)
+        |> Map.put(:status, :running)
+        |> Map.put(:running_instances, instances)
+      end)
+
+    (discovered_agents ++ running_only_agents)
     |> Enum.sort_by(fn a -> {status_sort(a.status), a.name} end)
   end
 

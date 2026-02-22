@@ -4,6 +4,7 @@ defmodule JidoStudio.TraceBuffer do
 
   alias JidoStudio.Ingestor
   alias JidoStudio.LiveOps
+  alias JidoStudio.Observability.Correlation
   alias JidoStudio.TraceCatalog
 
   @default_size 5000
@@ -277,6 +278,7 @@ defmodule JidoStudio.TraceBuffer do
       signal_type: metadata[:signal_type],
       directive_type: metadata[:directive_type]
     }
+    |> Correlation.normalize()
   end
 
   defp normalize_event(_event_prefix, _measurements, metadata, timestamp_ms, source, counter) do
@@ -309,6 +311,7 @@ defmodule JidoStudio.TraceBuffer do
       signal_type: nil,
       directive_type: nil
     }
+    |> Correlation.normalize()
   end
 
   defp normalize_event_type(type) when is_atom(type), do: type
@@ -424,6 +427,13 @@ defmodule JidoStudio.TraceBuffer do
       timestamp_ms: event[:timestamp_ms],
       trace_id: event[:trace_id],
       span_id: event[:span_id],
+      event_name: event[:event_name],
+      source: event[:source],
+      metadata: event[:metadata] || %{},
+      measurements: event[:measurements] || %{},
+      call_id: event[:call_id],
+      task_id: event[:task_id],
+      scope: event[:scope] || %{},
       type: event[:type],
       status: event[:status]
     }

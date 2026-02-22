@@ -74,6 +74,41 @@ defmodule JidoStudio.DelegationTest do
     assert Enum.any?(graph.edges, &(&1.from == "parent-agent-1" and &1.to == "child-agent-1"))
   end
 
+  test "returns subagent detail and subagent-scoped events" do
+    t0 = System.system_time(:millisecond)
+
+    Ingestor.ingest_event(%{
+      trace_id: "trace-delegation-2",
+      span_id: "span-1",
+      parent_span_id: nil,
+      agent_id: "child-agent-2",
+      parent_agent_id: "parent-agent-2",
+      type: :start,
+      event_name: "jido.agent.cmd.start",
+      timestamp_ms: t0,
+      metadata: %{subagent_id: "child-agent-2"}
+    })
+
+    Ingestor.ingest_event(%{
+      trace_id: "trace-delegation-2",
+      span_id: "span-2",
+      parent_span_id: "span-1",
+      agent_id: "another-agent",
+      parent_agent_id: "parent-agent-2",
+      type: :stop,
+      event_name: "jido.agent.cmd.stop",
+      timestamp_ms: t0 + 15,
+      metadata: %{subagent_id: "child-agent-2"}
+    })
+
+    Process.sleep(30)
+
+    assert %{} = Delegation.get_subagent("parent-agent-2", "child-agent-2")
+
+    events = Delegation.list_subagent_events("trace-delegation-2", "child-agent-2")
+    assert length(events) == 2
+  end
+
   defp clear_table(table) do
     if :ets.whereis(table) != :undefined do
       :ets.delete_all_objects(table)

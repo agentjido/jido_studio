@@ -83,4 +83,30 @@ defmodule JidoStudio.TraceBufferTest do
     assert events != []
     assert Enum.all?(events, &(&1.instance_id == "inst-1"))
   end
+
+  test "normalized telemetry events include live ops enrichment fields" do
+    send(
+      TraceBuffer,
+      {:telemetry_event, [:jido, :ai, :tool, :execute, :start], %{duration: 10},
+       %{
+         agent_id: "inst-enriched",
+         trace_id: "trace-enriched",
+         call_id: "call-enriched",
+         task_id: "task-enriched",
+         scope: %{project_id: "p1", user_id: "u1"}
+       }}
+    )
+
+    Process.sleep(20)
+
+    [event | _] = TraceBuffer.events(5)
+
+    assert event.event_name == "jido.ai.tool.execute.start"
+    assert event.source == :telemetry
+    assert event.call_id == "call-enriched"
+    assert event.task_id == "task-enriched"
+    assert event.scope[:project_id] == "p1"
+    assert is_map(event.metadata)
+    assert is_map(event.measurements)
+  end
 end

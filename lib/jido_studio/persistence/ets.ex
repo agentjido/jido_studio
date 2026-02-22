@@ -180,7 +180,15 @@ defmodule JidoStudio.Persistence.ETS do
 
   @impl true
   def handle_call({:append_event, stream, event}, _from, state) do
-    seq = Map.get(state.seq_by_stream, stream, 0) + 1
+    seq =
+      case :ets.lookup(@seq_table, stream) do
+        [{^stream, current}] when is_integer(current) and current >= 0 ->
+          current + 1
+
+        _ ->
+          max_stream_seq(stream) + 1
+      end
+
     now = now_ms()
 
     normalized_event =
@@ -284,6 +292,17 @@ defmodule JidoStudio.Persistence.ETS do
   end
 
   defp seq_in_range?(_, _, _), do: false
+
+  defp max_stream_seq(stream) when is_binary(stream) do
+    @events_table
+    |> :ets.match({{stream, :"$1"}, :_})
+    |> Enum.reduce(0, fn
+      [seq], acc when is_integer(seq) and seq > acc -> seq
+      _other, acc -> acc
+    end)
+  end
+
+  defp max_stream_seq(_), do: 0
 
   defp now_ms, do: System.system_time(:millisecond)
 end

@@ -11,6 +11,7 @@ defmodule JidoStudio.Threads.Manager do
           chat_state: map(),
           draft_message: String.t(),
           thread_contexts: map(),
+          interaction_history: map(),
           source: :fresh | :persisted,
           instance_binding: map()
         }
@@ -118,6 +119,7 @@ defmodule JidoStudio.Threads.Manager do
       storage_opts = storage_opts(opts)
       draft_message = Keyword.get(opts, :draft_message, "")
       thread_contexts = Keyword.get(opts, :thread_contexts, %{})
+      interaction_history = Keyword.get(opts, :interaction_history, %{})
       instance_binding = Keyword.get(opts, :instance_binding, %{})
 
       existing_checkpoint =
@@ -140,6 +142,7 @@ defmodule JidoStudio.Threads.Manager do
                state,
                updated_records,
                thread_contexts,
+               interaction_history,
                draft_message,
                instance_binding,
                storage_opts
@@ -268,6 +271,7 @@ defmodule JidoStudio.Threads.Manager do
          chat_state,
          thread_records,
          thread_contexts,
+         interaction_history,
          draft_message,
          instance_binding,
          storage_opts
@@ -276,6 +280,7 @@ defmodule JidoStudio.Threads.Manager do
       Codec.encode_workspace_checkpoint(chat_state,
         thread_records: thread_records,
         thread_contexts: thread_contexts,
+        interaction_history: interaction_history,
         draft_message: draft_message,
         instance_binding: instance_binding,
         updated_at: now_ms()

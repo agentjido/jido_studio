@@ -28,13 +28,18 @@ defmodule JidoStudio do
 
   ## Features
 
-  - **Agents** — Browse, inspect, and chat with running agents
+  - **Home** — Fleet health summary with attention cues and quick actions
+  - **Agents** — Browse, inspect, and interact with running agents
+  - **Catalog** — Discovery-powered catalog of agents, actions, sensors, and plugins
+  - **Activity** — Operational timeline across signals, actions, workflows, and traces
+  - **Diagnostics** — Deep runtime and cluster health diagnostics
+  - **Dual Interaction Surface** — Chat-first UX with non-chat `Interact` introspection/runner support
   - **Live Ops** — Event-driven runtime updates and scoped debugging
   - **Delegation** — Sub-agent/task visibility for causal debugging
-  - **Registry** — Discovery-powered catalog of agents, actions, sensors, and plugins
   - **Threads** — Inspect persisted thread/memory entries
   - **Traces** — View telemetry events with filtering, critical path, and eval history
   - **Settings** — Configure runtime behavior
+  - **About** — Product links, docs, and support information
 
   ## Customization
 
@@ -61,7 +66,33 @@ defmodule JidoStudio do
         live_ops: [
           enabled: true,
           auto_follow_default: true,
-          scope_keys: [:project_id, :user_id]
+          scope_keys: [:project_id, :user_id],
+          event_stream_limit: 100,
+          agent_list_poll_ms: 2_000,
+          viewer_tracking: true
+        ],
+        cluster: [
+          enabled: true,
+          rpc_timeout_ms: 3_000,
+          default_scope: :all
+        ],
+        branding: [
+          about_links: [
+            %{label: "Agent Jido", url: "https://agentjido.xyz"},
+            %{label: "LLMDB", url: "https://llmdb.xyz"},
+            %{label: "GitHub", url: "https://github.com/sagents-ai/jido_studio"},
+            %{label: "Community", url: "https://github.com/sagents-ai/jido/discussions"}
+          ],
+          about_tagline: "Observe, understand, and guide your Agents from one place.",
+          support_email: nil,
+          docs_url: "https://agentjido.xyz"
+        ],
+        agent_interactions: [
+          enabled: true,
+          default_tab: :auto,
+          runner_timeout_ms: 5_000,
+          runner_history_limit: 20,
+          internal_agent_tags: ["internal"]
         ],
         delegation: [
           enabled: true
