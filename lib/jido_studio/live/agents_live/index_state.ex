@@ -10,7 +10,9 @@ defmodule JidoStudio.Live.AgentsLive.IndexState do
   alias JidoStudio.Live.AgentsLive.ShowState
   alias JidoStudio.Live.AgentsLive.Support
   alias JidoStudio.LiveOps
+  alias JidoStudio.Onboarding.StarterAgent
   alias JidoStudio.Presenters.Default
+  alias JidoStudio.ScopeQuery
 
   @default_model "claude-sonnet-4-5"
 
@@ -33,6 +35,15 @@ defmodule JidoStudio.Live.AgentsLive.IndexState do
 
     agents = Support.filter_agents_by_scope(listed_agents, scope_filters)
     {product_agents, internal_agents} = Support.split_discovered_agents(agents)
+    {starter_agent, starter_reason} = StarterAgent.pick(product_agents)
+
+    starter_launch_path =
+      starter_launch_path(
+        socket.assigns.prefix,
+        starter_agent,
+        socket.assigns[:runtime_key],
+        socket.assigns[:cluster_node_param]
+      )
 
     active_instances =
       Support.build_active_instances(agents,
@@ -57,6 +68,9 @@ defmodule JidoStudio.Live.AgentsLive.IndexState do
       |> assign(:agents, agents)
       |> assign(:product_agents, product_agents)
       |> assign(:internal_agents, internal_agents)
+      |> assign(:starter_agent, starter_agent)
+      |> assign(:starter_reason, starter_reason)
+      |> assign(:starter_launch_path, starter_launch_path)
       |> assign(:active_instances, active_instances)
       |> assign(:filtered_instances, filtered_instances)
       |> assign(
@@ -137,6 +151,15 @@ defmodule JidoStudio.Live.AgentsLive.IndexState do
       |> Support.filter_agents_by_scope(socket.assigns[:scope_filters])
 
     {product_agents, internal_agents} = Support.split_discovered_agents(agents)
+    {starter_agent, starter_reason} = StarterAgent.pick(product_agents)
+
+    starter_launch_path =
+      starter_launch_path(
+        socket.assigns.prefix,
+        starter_agent,
+        socket.assigns[:runtime_key],
+        socket.assigns[:cluster_node_param]
+      )
 
     active_instances =
       Support.build_active_instances(agents,
@@ -157,6 +180,9 @@ defmodule JidoStudio.Live.AgentsLive.IndexState do
     |> assign(:agents, agents)
     |> assign(:product_agents, product_agents)
     |> assign(:internal_agents, internal_agents)
+    |> assign(:starter_agent, starter_agent)
+    |> assign(:starter_reason, starter_reason)
+    |> assign(:starter_launch_path, starter_launch_path)
     |> assign(:running_count, running_count)
     |> assign(:active_instances, active_instances)
     |> assign(:filtered_instances, filtered_instances)
@@ -188,6 +214,15 @@ defmodule JidoStudio.Live.AgentsLive.IndexState do
       |> Support.filter_agents_by_scope(filters)
 
     {product_agents, internal_agents} = Support.split_discovered_agents(agents)
+    {starter_agent, starter_reason} = StarterAgent.pick(product_agents)
+
+    starter_launch_path =
+      starter_launch_path(
+        socket.assigns.prefix,
+        starter_agent,
+        socket.assigns[:runtime_key],
+        socket.assigns[:cluster_node_param]
+      )
 
     active_instances =
       Support.build_active_instances(agents,
@@ -203,6 +238,9 @@ defmodule JidoStudio.Live.AgentsLive.IndexState do
     |> assign(:agents, agents)
     |> assign(:product_agents, product_agents)
     |> assign(:internal_agents, internal_agents)
+    |> assign(:starter_agent, starter_agent)
+    |> assign(:starter_reason, starter_reason)
+    |> assign(:starter_launch_path, starter_launch_path)
     |> assign(:active_instances, active_instances)
     |> assign(:filtered_instances, filtered_instances)
     |> Support.maybe_subscribe_viewers(active_instances)
@@ -321,5 +359,13 @@ defmodule JidoStudio.Live.AgentsLive.IndexState do
     else
       Support.maybe_track_followed_viewer(socket)
     end
+  end
+
+  defp starter_launch_path(prefix, %{slug: slug}, runtime_key, node_param) when is_binary(slug) do
+    ScopeQuery.with_scope_query("#{prefix}/agents/#{slug}?start=1", runtime_key, node_param)
+  end
+
+  defp starter_launch_path(prefix, _starter_agent, runtime_key, node_param) do
+    ScopeQuery.with_scope_query("#{prefix}/agents", runtime_key, node_param)
   end
 end

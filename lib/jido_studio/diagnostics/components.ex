@@ -154,6 +154,7 @@ defmodule JidoStudio.Diagnostics.Components do
         <% else %>
           <form
             phx-change="timeline_filters_change"
+            data-tour-id="diagnostics-trace-picker"
             class="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-2"
           >
             <label class="text-xs text-js-text-muted lg:col-span-2">
@@ -273,7 +274,7 @@ defmodule JidoStudio.Diagnostics.Components do
                       </div>
                     </.card>
 
-                    <.card class="p-3 overflow-x-auto">
+                    <.card class="p-3 overflow-x-auto" data-tour-id="diagnostics-timeline-waterfall">
                       <h3 class="text-xs uppercase tracking-wider text-js-text-subtle mb-2">
                         Waterfall
                       </h3>

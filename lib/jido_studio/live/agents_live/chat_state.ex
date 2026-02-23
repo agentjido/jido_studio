@@ -11,6 +11,7 @@ defmodule JidoStudio.Live.AgentsLive.ChatState do
   alias JidoStudio.Live.AgentsLive.ShowState
   alias JidoStudio.Live.AgentsLive.Support
   alias JidoStudio.Live.AgentsLive.WorkspaceState
+  alias JidoStudio.ProductMetrics
 
   def handle_send_message(socket) do
     message = String.trim(socket.assigns.draft_message || "")
@@ -31,6 +32,12 @@ defmodule JidoStudio.Live.AgentsLive.ChatState do
          )}
 
       true ->
+        :ok =
+          ProductMetrics.interaction_started(socket,
+            source: "agents_chat",
+            mode: "chat"
+          )
+
         pending_content = "Thinking..."
 
         {chat_state, pending_id} =
@@ -91,6 +98,13 @@ defmodule JidoStudio.Live.AgentsLive.ChatState do
                  )}
 
               {:error, reason} ->
+                :ok =
+                  ProductMetrics.interaction_completed(socket,
+                    source: "agents_chat",
+                    mode: "chat",
+                    status: "error"
+                  )
+
                 error_message = ChatRuntime.to_user_message(reason, timeout_ms: timeout_ms)
 
                 socket =
@@ -220,7 +234,18 @@ defmodule JidoStudio.Live.AgentsLive.ChatState do
   end
 
   defp resolve_chat_reply(socket, pending_id, reply) do
+    :ok =
+      ProductMetrics.interaction_completed(socket,
+        source: "agents_chat",
+        mode: "chat",
+        status: "success"
+      )
+
     socket
+    |> ProductMetrics.maybe_emit_first_interaction_succeeded(
+      source: "agents_chat",
+      mode: "chat"
+    )
     |> assign(
       :chat_state,
       ChatSession.resolve_assistant_reply(socket.assigns.chat_state, pending_id, reply)
@@ -230,6 +255,13 @@ defmodule JidoStudio.Live.AgentsLive.ChatState do
   end
 
   defp resolve_chat_error(socket, pending_id, reason) do
+    :ok =
+      ProductMetrics.interaction_completed(socket,
+        source: "agents_chat",
+        mode: "chat",
+        status: "error"
+      )
+
     message =
       ChatRuntime.to_user_message(reason, timeout_ms: socket.assigns.chat_config.timeout_ms)
 

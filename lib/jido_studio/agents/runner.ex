@@ -76,23 +76,33 @@ defmodule JidoStudio.Agents.Runner do
   end
 
   defp dispatch_signal(pid, signal, :sync, timeout_ms) do
-    case Jido.AgentServer.call(pid, signal, timeout_ms) do
-      {:ok, result} -> {:ok, %{status: :ok, response: summarize_result(result)}}
-      {:error, reason} -> {:error, reason}
+    try do
+      case Jido.AgentServer.call(pid, signal, timeout_ms) do
+        {:ok, result} -> {:ok, %{status: :ok, response: summarize_result(result)}}
+        {:error, reason} -> {:error, reason}
+      end
+    rescue
+      error ->
+        {:error, {:dispatch_failed, Exception.message(error)}}
+    catch
+      :exit, reason ->
+        {:error, {:dispatch_failed, inspect(reason)}}
     end
-  rescue
-    error ->
-      {:error, {:dispatch_failed, Exception.message(error)}}
   end
 
   defp dispatch_signal(pid, signal, :async, _timeout_ms) do
-    case Jido.AgentServer.cast(pid, signal) do
-      :ok -> {:ok, %{status: :queued}}
-      {:error, reason} -> {:error, reason}
+    try do
+      case Jido.AgentServer.cast(pid, signal) do
+        :ok -> {:ok, %{status: :queued}}
+        {:error, reason} -> {:error, reason}
+      end
+    rescue
+      error ->
+        {:error, {:dispatch_failed, Exception.message(error)}}
+    catch
+      :exit, reason ->
+        {:error, {:dispatch_failed, inspect(reason)}}
     end
-  rescue
-    error ->
-      {:error, {:dispatch_failed, Exception.message(error)}}
   end
 
   defp validate_payload(%{schema: nil}, payload), do: {:ok, payload}

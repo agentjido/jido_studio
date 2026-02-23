@@ -33,6 +33,19 @@ defmodule JidoStudio.DiagnosticsLiveTest do
   test "timeline trace view renders waterfall and supports span selection with deep links", %{
     conn: conn
   } do
+    event = [:jido_studio, :triage, :root_cause_opened]
+    handler_id = "diagnostics-root-cause-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        &__MODULE__.handle_telemetry_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
     {trace_id, span_ids} = seed_timeline_trace()
     node_param = URI.encode_www_form(to_string(Node.self()))
     encoded_trace_id = URI.encode_www_form(trace_id)
@@ -47,6 +60,12 @@ defmodule JidoStudio.DiagnosticsLiveTest do
     view
     |> element("button[phx-click='select_timeline_span'][phx-value-span_id='#{span_ids.tool}']")
     |> render_click()
+
+    assert_receive {:telemetry_event, ^event, measurements, metadata}
+    assert measurements.count == 1
+    assert metadata.trace_id == trace_id
+    assert metadata.span_id == span_ids.tool
+    assert metadata.source == "diagnostics_timeline"
 
     rendered = render(view)
     assert rendered =~ "Span Details"
@@ -157,5 +176,9 @@ defmodule JidoStudio.DiagnosticsLiveTest do
     end)
 
     {trace_id, spans}
+  end
+
+  def handle_telemetry_event(event, measurements, metadata, pid) do
+    send(pid, {:telemetry_event, event, measurements, metadata})
   end
 end

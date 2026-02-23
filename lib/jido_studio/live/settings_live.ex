@@ -5,6 +5,7 @@ defmodule JidoStudio.SettingsLive do
   import JidoStudio.Components
   import JidoStudio.Setup.Components
 
+  alias JidoStudio.GuidedTour
   alias JidoStudio.Setup
   alias JidoStudio.Setup.Helpers
   alias JidoStudio.Setup.Profiles
@@ -108,17 +109,30 @@ defmodule JidoStudio.SettingsLive do
   end
 
   @impl true
+  def handle_event("tour_metric", params, socket) do
+    {:noreply, GuidedTour.track_metric(socket, params)}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <div class="p-6 space-y-6">
-      <.page_header title="Settings" subtitle="Studio configuration and runtime info">
+      <.page_header title="Settings" subtitle="How is Studio configured for this runtime?">
         <:actions>
           <.badge variant={:default}>runtime:{@runtime_key || "default"}</.badge>
           <.badge variant={:info}>node:{@cluster_node_param || "all"}</.badge>
         </:actions>
       </.page_header>
 
-      <.card>
+      <.tour_metric_bridge />
+
+      <.card class="py-3">
+        <p class="text-xs text-js-text-muted">
+          What this page is for: verify setup state and runtime configuration before debugging or incident response.
+        </p>
+      </.card>
+
+      <.card data-tour-id="settings-setup-assistant">
         <div class="flex items-start justify-between gap-3">
           <div>
             <h2 class="text-sm font-semibold text-js-text">Setup Assistant</h2>

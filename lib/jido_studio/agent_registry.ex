@@ -7,6 +7,7 @@ defmodule JidoStudio.AgentRegistry do
   view of all agents in the system.
   """
 
+  alias JidoStudio.Beginner
   alias JidoStudio.Cluster.RPC
   alias JidoStudio.Cluster.Scope
   alias JidoStudio.Naming
@@ -18,6 +19,7 @@ defmodule JidoStudio.AgentRegistry do
           slug: String.t() | nil,
           category: atom() | String.t() | nil,
           tags: [atom() | String.t()],
+          source_app: String.t() | nil,
           status: :available | :running | :offline,
           running_instances: [instance_info()],
           pid: pid() | nil,
@@ -84,6 +86,7 @@ defmodule JidoStudio.AgentRegistry do
     running = list_running_agents(instance)
 
     merge_agents(discovered, running)
+    |> maybe_filter_beginner_agents()
   end
 
   @doc """
@@ -150,6 +153,7 @@ defmodule JidoStudio.AgentRegistry do
     fallback = list_discovered_agents_from_behaviour()
 
     merge_discovered_agents(discovered, fallback)
+    |> maybe_filter_beginner_discovered()
   end
 
   @doc """
@@ -285,10 +289,10 @@ defmodule JidoStudio.AgentRegistry do
     running_instances =
       merge_running_instances(left.running_instances || [], right.running_instances || [])
 
-    left
-    |> merge_cluster_agent_metadata(right)
-    |> Map.put(:running_instances, running_instances)
-    |> Map.put(:status, if(running_instances == [], do: :available, else: :running))
+      left
+      |> merge_cluster_agent_metadata(right)
+      |> Map.put(:running_instances, running_instances)
+      |> Map.put(:status, if(running_instances == [], do: :available, else: :running))
   end
 
   defp merge_cluster_agent_metadata(left, right) do
@@ -298,7 +302,8 @@ defmodule JidoStudio.AgentRegistry do
         description: present_value(left.description, right.description),
         slug: present_value(left.slug, right.slug),
         category: present_value(left.category, right.category),
-        tags: Enum.uniq(List.wrap(left.tags) ++ List.wrap(right.tags))
+        tags: Enum.uniq(List.wrap(left.tags) ++ List.wrap(right.tags)),
+        source_app: present_value(left.source_app, right.source_app)
     }
   end
 
@@ -405,6 +410,7 @@ defmodule JidoStudio.AgentRegistry do
       slug: module_slug(module),
       category: metadata_value(module, :category, nil),
       tags: metadata_tags(module),
+      source_app: module_source_app(module),
       status: :available,
       running_instances: [],
       pid: nil,
@@ -420,6 +426,7 @@ defmodule JidoStudio.AgentRegistry do
       slug: meta[:slug],
       category: meta[:category],
       tags: meta[:tags] || [],
+      source_app: module_source_app(meta[:module]),
       status: :available,
       running_instances: [],
       pid: nil,
@@ -444,6 +451,16 @@ defmodule JidoStudio.AgentRegistry do
     end
   end
 
+  defp module_source_app(module) when is_atom(module) do
+    case :application.get_application(module) do
+      {:ok, app} when is_atom(app) -> Atom.to_string(app)
+      app when is_atom(app) -> Atom.to_string(app)
+      _ -> nil
+    end
+  end
+
+  defp module_source_app(_), do: nil
+
   defp module_slug(module) do
     module
     |> Atom.to_string()
@@ -466,6 +483,31 @@ defmodule JidoStudio.AgentRegistry do
 
   defp fallback_agent_module(%{agent: %{__struct__: module}}) when is_atom(module), do: module
   defp fallback_agent_module(_), do: nil
+
+  defp maybe_filter_beginner_discovered(agents) when is_list(agents) do
+    if Beginner.enabled?() do
+      agents
+    else
+      Enum.reject(agents, &beginner_agent?/1)
+    end
+  end
+
+  defp maybe_filter_beginner_agents(agents) when is_list(agents) do
+    if Beginner.enabled?() do
+      agents
+    else
+      Enum.reject(agents, fn
+        %{} = agent ->
+          beginner_agent?(agent) and List.wrap(Map.get(agent, :running_instances)) == []
+
+        _ ->
+          false
+      end)
+    end
+  end
+
+  defp beginner_agent?(%{module: module}) when is_atom(module), do: module == Beginner.module()
+  defp beginner_agent?(_), do: false
 
   defp status_sort(:running), do: 0
   defp status_sort(:available), do: 1

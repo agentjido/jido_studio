@@ -4,18 +4,26 @@ defmodule JidoStudio.IARoutesTest do
   test "root route renders HomeLive", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/studio")
 
-    assert html =~ "Operational overview with fast paths to action"
+    assert html =~ "Are your agents healthy right now?"
     assert html =~ "Click to play"
     assert html =~ "Setup Assistant"
-    assert html =~ "Calculator Agent"
-    assert html =~ "Open Calculator Example"
+    assert html =~ "Starter Agent"
+    assert html =~ "Open Starter Agent"
   end
 
   test "catalog route renders canonical catalog page", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/studio/catalog")
 
     assert html =~ "Agent Catalog"
-    assert html =~ "What your agents can do"
+    assert html =~ "What can your agents do across runtime and discovery?"
+  end
+
+  test "guide route renders guided tour page", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/studio/guide")
+
+    assert html =~ "Guide"
+    assert html =~ "How do you get value from Studio in under five minutes?"
+    assert html =~ "Start Tour"
   end
 
   test "registry route redirects to catalog preserving query params", %{conn: conn} do
@@ -41,6 +49,7 @@ defmodule JidoStudio.IARoutesTest do
     {:ok, _view, html} = live(conn, "/studio")
 
     home_idx = index_of(html, ">Home<")
+    guide_idx = index_of(html, ">Guide<")
     agents_idx = index_of(html, ">Agents<")
     catalog_idx = index_of(html, ">Catalog<")
     activity_idx = index_of(html, ">Activity<")
@@ -48,7 +57,8 @@ defmodule JidoStudio.IARoutesTest do
     settings_idx = index_of(html, ">Settings<")
     about_idx = index_of(html, ">About<")
 
-    assert home_idx < agents_idx
+    assert home_idx < guide_idx
+    assert guide_idx < agents_idx
     assert agents_idx < catalog_idx
     assert catalog_idx < activity_idx
     assert activity_idx < diagnostics_idx

@@ -10,6 +10,7 @@ defmodule JidoStudio.AgentsLive do
   alias JidoStudio.Agents.Runner
   alias JidoStudio.Agents.RunnerForm
   alias JidoStudio.Chat.Session, as: ChatSession
+  alias JidoStudio.GuidedTour
   alias JidoStudio.LiveOps
   alias JidoStudio.Live.AgentsLive.IndexState
   alias JidoStudio.Live.AgentsLive.ChatState
@@ -19,6 +20,7 @@ defmodule JidoStudio.AgentsLive do
   alias JidoStudio.Live.AgentsLive.ShowState
   alias JidoStudio.Live.AgentsLive.WorkspaceState
   alias JidoStudio.Observability
+  alias JidoStudio.ProductMetrics
   alias JidoStudio.Presenters.Default
   alias JidoStudio.Threads.Storage, as: ThreadsStorage
 
@@ -53,6 +55,9 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:agents, agents)
       |> assign(:product_agents, product_agents)
       |> assign(:internal_agents, internal_agents)
+      |> assign(:starter_agent, nil)
+      |> assign(:starter_reason, nil)
+      |> assign(:starter_launch_path, nil)
       |> assign(:running_count, running_count)
       |> assign(:jido_configured?, jido_instance != nil)
       |> assign(:agent_interactions_enabled?, AgentInteractions.enabled?())
@@ -72,6 +77,7 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:chat_pending?, false)
       |> assign(:chat_pending_message_id, nil)
       |> assign(:chat_stream, nil)
+      |> assign(:first_interaction_success_emitted?, false)
       |> assign(:draft_message, "")
       |> assign(:workspace_source, :fresh)
       |> assign(:persisted_thread_contexts, %{})
@@ -143,12 +149,36 @@ defmodule JidoStudio.AgentsLive do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    {:noreply, apply_action(socket, socket.assigns.live_action, params)}
+    socket =
+      socket
+      |> apply_action(socket.assigns.live_action, params)
+      |> maybe_emit_starter_start_modal_metric(params)
+
+    {:noreply, socket}
   end
 
   @impl true
   def handle_event("refresh", _params, socket) do
     {:noreply, IndexState.refresh(socket)}
+  end
+
+  @impl true
+  def handle_event("tour_metric", params, socket) do
+    {:noreply, GuidedTour.track_metric(socket, params)}
+  end
+
+  @impl true
+  def handle_event("open_starter_agent", %{"path" => path} = params, socket)
+      when is_binary(path) do
+    :ok =
+      ProductMetrics.onboarding_starter_opened(socket,
+        source: "agents_starter_card",
+        mode: normalize_starter_mode(params["mode"], "agents_index"),
+        starter_slug: normalize_optional_string(params["starter_slug"]),
+        starter_module: normalize_optional_string(params["starter_module"])
+      )
+
+    {:noreply, push_navigate(socket, to: path)}
   end
 
   @impl true
@@ -418,30 +448,78 @@ defmodule JidoStudio.AgentsLive do
   end
 
   @impl true
+  def handle_event("open_triage_link", %{"path" => path} = params, socket)
+      when is_binary(path) do
+    warning_kind = params["kind"] || "triage_link"
+
+    :ok =
+      ProductMetrics.triage_warning_opened(socket,
+        source: "agents_triage",
+        warning_kind: warning_kind
+      )
+
+    {:noreply, push_navigate(socket, to: path)}
+  end
+
+  @impl true
   def handle_event("run_selected_interaction", _params, socket) do
     with true <- is_pid(socket.assigns[:active_instance_pid]),
          true <- RunnerForm.can_execute?(socket.assigns.runner_form),
          {:ok, payload} <- decode_runner_payload(socket.assigns.runner_form.payload_json),
-         {:ok, dispatch_ref} <- selected_dispatch_ref(socket),
-         {:ok, result} <-
-           Runner.dispatch(socket.assigns.active_instance_pid, dispatch_ref, payload,
+         {:ok, dispatch_ref} <- selected_dispatch_ref(socket) do
+      :ok =
+        ProductMetrics.interaction_started(socket,
+          source: "agents_interact",
+          mode: "interact",
+          dispatch_mode: socket.assigns.runner_form.dispatch_mode
+        )
+
+      case Runner.dispatch(socket.assigns.active_instance_pid, dispatch_ref, payload,
              dispatch_mode: socket.assigns.runner_form.dispatch_mode,
              timeout_ms: AgentInteractions.runner_timeout_ms()
            ) do
-      instance_id = socket.assigns[:active_instance_id]
-      history_entry = normalize_runner_history_entry(result, dispatch_ref)
-      history = prepend_runner_history(socket.assigns[:runner_history], history_entry)
+        {:ok, result} ->
+          :ok =
+            ProductMetrics.interaction_completed(socket,
+              source: "agents_interact",
+              mode: "interact",
+              status: "success",
+              dispatch_mode: socket.assigns.runner_form.dispatch_mode
+            )
 
-      interaction_history =
-        update_interaction_history(socket.assigns[:interaction_history], instance_id, history)
+          instance_id = socket.assigns[:active_instance_id]
+          history_entry = normalize_runner_history_entry(result, dispatch_ref)
+          history = prepend_runner_history(socket.assigns[:runner_history], history_entry)
 
-      {:noreply,
-       socket
-       |> assign(:runner_result, %{status: :ok, value: result})
-       |> assign(:runner_history, history)
-       |> assign(:interaction_history, interaction_history)
-       |> assign(:runner_form, RunnerForm.disarm(socket.assigns.runner_form))
-       |> schedule_workspace_persist(:interaction_history, 100)}
+          interaction_history =
+            update_interaction_history(socket.assigns[:interaction_history], instance_id, history)
+
+          {:noreply,
+           socket
+           |> ProductMetrics.maybe_emit_first_interaction_succeeded(
+             source: "agents_interact",
+             mode: "interact"
+           )
+           |> assign(:runner_result, %{status: :ok, value: result})
+           |> assign(:runner_history, history)
+           |> assign(:interaction_history, interaction_history)
+           |> assign(:runner_form, RunnerForm.disarm(socket.assigns.runner_form))
+           |> schedule_workspace_persist(:interaction_history, 100)}
+
+        {:error, reason} ->
+          :ok =
+            ProductMetrics.interaction_completed(socket,
+              source: "agents_interact",
+              mode: "interact",
+              status: "error",
+              dispatch_mode: socket.assigns.runner_form.dispatch_mode
+            )
+
+          {:noreply,
+           socket
+           |> assign(:runner_result, %{status: :error, value: reason})
+           |> put_flash(:error, "Dispatch failed: #{format_dispatch_error(reason)}")}
+      end
     else
       false ->
         {:noreply,
@@ -541,6 +619,15 @@ defmodule JidoStudio.AgentsLive do
   @impl true
   def handle_event("open_start_modal", _params, socket) do
     if socket.assigns.jido_configured? do
+      :ok =
+        ProductMetrics.onboarding_starter_start_modal_opened(socket,
+          source: "agents_start_button",
+          mode: "manual",
+          starter_slug:
+            normalize_optional_string(socket.assigns[:agent] && socket.assigns.agent.slug),
+          starter_module: agent_module_name(socket.assigns[:agent])
+        )
+
       {:noreply,
        socket
        |> assign(:start_modal_open?, true)
@@ -856,4 +943,45 @@ defmodule JidoStudio.AgentsLive do
 
     socket
   end
+
+  defp maybe_emit_starter_start_modal_metric(socket, params) do
+    if socket.assigns[:live_action] == :show and
+         ShowState.start_modal_requested?(params) and
+         socket.assigns[:start_modal_open?] == true do
+      :ok =
+        ProductMetrics.onboarding_starter_start_modal_opened(socket,
+          source: "agents_start_query",
+          mode: "deep_link",
+          starter_slug:
+            normalize_optional_string(socket.assigns[:agent] && socket.assigns.agent.slug),
+          starter_module: agent_module_name(socket.assigns[:agent])
+        )
+
+      socket
+    else
+      socket
+    end
+  end
+
+  defp agent_module_name(%{module: module}) when is_atom(module), do: inspect(module)
+  defp agent_module_name(_), do: nil
+
+  defp normalize_starter_mode(value, fallback) when is_binary(value) do
+    case String.trim(value) do
+      "" -> fallback
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_starter_mode(_value, fallback), do: fallback
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_optional_string(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_optional_string(_), do: nil
 end

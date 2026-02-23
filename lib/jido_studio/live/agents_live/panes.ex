@@ -97,27 +97,36 @@ defmodule JidoStudio.Live.AgentsLive.Panes do
             <h4 class="text-xs uppercase tracking-wider text-js-text-subtle">Live Triage</h4>
           </div>
           <div class="flex flex-wrap gap-2">
-            <.link
+            <button
               :if={is_binary(@triage_links[:latest_incident_path])}
-              navigate={@triage_links[:latest_incident_path]}
+              type="button"
+              phx-click="open_triage_link"
+              phx-value-path={@triage_links[:latest_incident_path]}
+              phx-value-kind="latest_incident"
               class="js-agent-summary-link inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Latest Incident
-            </.link>
-            <.link
+            </button>
+            <button
               :if={is_binary(@triage_links[:failures_path])}
-              navigate={@triage_links[:failures_path]}
+              type="button"
+              phx-click="open_triage_link"
+              phx-value-path={@triage_links[:failures_path]}
+              phx-value-kind="recent_failures"
               class="js-agent-summary-link inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Recent Failures
-            </.link>
-            <.link
+            </button>
+            <button
               :if={is_binary(@triage_links[:snapshot_path])}
-              navigate={@triage_links[:snapshot_path]}
+              type="button"
+              phx-click="open_triage_link"
+              phx-value-path={@triage_links[:snapshot_path]}
+              phx-value-kind="correlated_snapshot"
               class="js-agent-summary-link inline-flex items-center rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
             >
               Correlated Snapshot
-            </.link>
+            </button>
           </div>
         </div>
 

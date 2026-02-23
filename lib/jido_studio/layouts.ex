@@ -3,6 +3,7 @@ defmodule JidoStudio.Layouts do
   use Phoenix.Component
 
   alias JidoStudio.Cluster.Scope
+  alias JidoStudio.GuidedTour
   alias JidoStudio.ScopeQuery
 
   import Phoenix.HTML
@@ -179,6 +180,7 @@ defmodule JidoStudio.Layouts do
           data-sidebar-state="expanded"
           data-advanced-scope-state="collapsed"
           data-prefix={@prefix}
+          data-js-tour-catalog={GuidedTour.flows_json()}
         >
           <.sidebar
             current_path={@current_path}
@@ -433,6 +435,12 @@ defmodule JidoStudio.Layouts do
     """
   end
 
+  defp nav_icon(%{name: "guide"} = assigns) do
+    ~H"""
+    <Lucideicons.compass class="w-[18px] h-[18px] shrink-0" />
+    """
+  end
+
   defp nav_icon(%{name: "catalog"} = assigns) do
     ~H"""
     <Lucideicons.book_open class="w-[18px] h-[18px] shrink-0" />
@@ -485,6 +493,7 @@ defmodule JidoStudio.Layouts do
       label: "Navigation",
       items: [
         %{path: "/", label: "Home", icon: "home"},
+        %{path: "/guide", label: "Guide", icon: "guide"},
         %{path: "/agents", label: "Agents", icon: "agents"},
         %{path: "/catalog", label: "Catalog", icon: "catalog"},
         %{path: "/activity", label: "Activity", icon: "activity"},

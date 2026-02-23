@@ -20,6 +20,7 @@ defmodule JidoStudio.MixProject do
       homepage_url: @source_url,
       package: package(),
       docs: docs(),
+      cli: cli(),
       dialyzer: [
         plt_local_path: "priv/plts/project.plt",
         plt_core_path: "priv/plts/core.plt"
@@ -93,6 +94,14 @@ defmodule JidoStudio.MixProject do
         "dialyzer"
       ],
       "assets.build": ["cmd npm run build:css"]
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
+        "jido_studio.benchmark.triage": :test
+      ]
     ]
   end
 end

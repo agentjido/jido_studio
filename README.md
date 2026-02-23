@@ -195,6 +195,57 @@ Profiles are guidance-only presets shown in-app:
 `Apply profile snippet` means show/copy snippet text with "What changes?" and rollback notes.
 Studio does not mutate host config files.
 
+### Beginner Agent and Discovery Model
+
+Studio includes a bundled deterministic starter agent by default:
+
+```elixir
+config :jido_studio, :beginner_agent,
+  enabled: true
+```
+
+Starter details:
+
+- module: `JidoStudio.BeginnerAgent`
+- purpose: first-run onboarding without provider keys or LLM dependencies
+- startup behavior: explicit only; opening starter links can pre-open Start modal (`start=1`), but users still confirm `Start Instance` manually
+
+Set `enabled: false` to hide the beginner agent from discovery lists when it is not running.
+If a beginner instance is already running, Studio keeps it visible so operators can inspect or stop it safely.
+
+Discovery glossary in product terms:
+
+- `Discovered modules`: compiled agent modules visible in the selected runtime
+- `Running instances`: currently started agent processes
+- `Active instances`: running instances after current scope/filter application
+
+### Product Metrics Events
+
+Studio emits additive telemetry events under `[:jido_studio, ...]` for Phase 5 hardening:
+
+- `[:interaction, :started]`
+- `[:interaction, :completed]`
+- `[:onboarding, :first_interaction_succeeded]`
+- `[:onboarding, :starter_opened]`
+- `[:onboarding, :starter_start_modal_opened]`
+- `[:triage, :warning_opened]`
+- `[:triage, :root_cause_opened]`
+- `[:incidents, :next_step_links_evaluated]`
+- `[:tour, :started]`
+- `[:tour, :step_viewed]`
+- `[:tour, :step_completed]`
+- `[:tour, :dismissed]`
+- `[:tour, :completed]`
+
+Common metadata keys include `runtime`, `node`, `path`, `source`, and `session_id`.
+Event-specific metadata can include `mode`, `status`, `warning_kind`, `trace_id`, `span_id`, `linked_count`, and `total_count`.
+
+Run the time-to-triage baseline benchmark with:
+
+```bash
+mix jido_studio.benchmark.triage
+```
+
 ### 3. Mount in the Phoenix router
 
 ```elixir
@@ -232,6 +283,7 @@ Template:
 Start Phoenix and open `/studio`. For MVP pages, verify:
 
 - `Home` (fleet health overview)
+- `Guide` (opt-in guided tours with resume/replay)
 - `Agents` (live runtime and debug toggle)
 - `Catalog` (discovery catalog)
 - `Activity` (operational timeline)

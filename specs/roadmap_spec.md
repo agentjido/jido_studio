@@ -103,10 +103,59 @@ Provide an implementation sequence that delivers a coherent operator-first produ
 - instrument north-star metrics
 - finalize docs and examples for common deployment profiles
 
+### Progress Notes (Current Branch)
+- Added shared product metrics helper and session correlation metadata:
+  - `lib/jido_studio/product_metrics.ex`
+  - `lib/jido_studio/hooks.ex`
+  - `lib/jido_studio/telemetry.ex`
+- Added interaction, onboarding, triage, and next-step coverage event emissions:
+  - `[:jido_studio, :interaction, :started]`
+  - `[:jido_studio, :interaction, :completed]`
+  - `[:jido_studio, :onboarding, :first_interaction_succeeded]`
+  - `[:jido_studio, :triage, :warning_opened]`
+  - `[:jido_studio, :triage, :root_cause_opened]`
+  - `[:jido_studio, :incidents, :next_step_links_evaluated]`
+- Added time-to-triage benchmark entrypoint:
+  - `mix jido_studio.benchmark.triage`
+  - `test/jido_studio/triage_benchmark_test.exs`
+- Reduced duplicate collection/path-state logic:
+  - `lib/jido_studio/cluster/collect.ex`
+  - `lib/jido_studio/live/home_live/state.ex`
+
 ### Gates
 - first-run success measurement instrumentation
 - time-to-triage benchmark baseline
 - regression suite green
+
+## Phase 6: Guided Adoption and Tour UX
+### Deliverables
+- dedicated `/guide` page for first-run and triage workflows
+- coachmark-style guided steps across Home, Agents, Diagnostics, and Settings
+- persistent local progress with resume/replay controls
+- additive tour telemetry events (`started`, `step_viewed`, `step_completed`, `dismissed`, `completed`)
+
+### Phase 6.1: Beginner Onboarding and Agent Discovery Clarity
+#### Deliverables
+- bundled deterministic `JidoStudio.BeginnerAgent` starter path
+- beginner visibility gate:
+  - `config :jido_studio, :beginner_agent, enabled: true`
+- starter selection service shared by Home/Agents/Guide
+- Agents inventory explainer and Source App ownership column
+- explicit starter deep-link flow (`/agents/:slug?start=1`) with modal-open but no auto-run
+- additive onboarding telemetry:
+  - `[:jido_studio, :onboarding, :starter_opened]`
+  - `[:jido_studio, :onboarding, :starter_start_modal_opened]`
+
+### Gates
+- guide route and sidebar ordering tests
+- guided flow definition tests with stable selector/path contracts
+- telemetry coverage for tour lifecycle events
+
+### Phase 6.1 Gates
+- beginner action determinism tests
+- registry visibility/source ownership tests
+- starter picker fallback-order tests
+- Agents/Guide/Home starter UX + deep-link tests
 
 ## Regression Guardrails
 - Existing `agents_live`, `observability`, `delegation`, `threads`, and cluster tests remain green.

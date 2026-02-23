@@ -8,6 +8,8 @@ defmodule JidoStudio.DiagnosticsLive do
   alias JidoStudio.Cluster.Scope
   alias JidoStudio.Diagnostics.Components, as: DiagnosticsComponents
   alias JidoStudio.Diagnostics.Timeline
+  alias JidoStudio.GuidedTour
+  alias JidoStudio.ProductMetrics
   alias JidoStudio.TraceFilter
   alias JidoStudio.Tracing
 
@@ -69,9 +71,18 @@ defmodule JidoStudio.DiagnosticsLive do
 
   @impl true
   def handle_event("select_timeline_span", %{"span_id" => span_id}, socket) do
+    normalized_span_id = normalize_optional_string(span_id)
+
+    :ok =
+      ProductMetrics.triage_root_cause_opened(socket,
+        source: "diagnostics_timeline",
+        trace_id: socket.assigns.timeline_filters.trace_id,
+        span_id: normalized_span_id
+      )
+
     filters =
       socket.assigns.timeline_filters
-      |> Map.put(:span_id, normalize_optional_string(span_id))
+      |> Map.put(:span_id, normalized_span_id)
 
     {:noreply,
      push_patch(socket,
@@ -102,6 +113,11 @@ defmodule JidoStudio.DiagnosticsLive do
   end
 
   @impl true
+  def handle_event("tour_metric", params, socket) do
+    {:noreply, GuidedTour.track_metric(socket, params)}
+  end
+
+  @impl true
   def handle_info(:refresh, socket) do
     {:noreply, refresh_diagnostics(socket)}
   end
@@ -112,7 +128,7 @@ defmodule JidoStudio.DiagnosticsLive do
     <div class="p-6 space-y-6">
       <.page_header
         title="Diagnostics"
-        subtitle="Technical tools for debugging agents and runtime behavior"
+        subtitle="Why did this fail in the selected runtime and node?"
       >
         <:actions>
           <div class="inline-flex rounded-md border border-js-border bg-js-bg-elevated p-1">
@@ -143,6 +159,7 @@ defmodule JidoStudio.DiagnosticsLive do
                   @cluster_node_param
                 )
               }
+              data-tour-id="diagnostics-timeline-toggle"
               class={[
                 "rounded px-2.5 py-1 text-xs transition-colors",
                 if(@view == "timeline",
@@ -158,6 +175,8 @@ defmodule JidoStudio.DiagnosticsLive do
           <.badge variant={:info}>node:{@cluster_node_param || "all"}</.badge>
         </:actions>
       </.page_header>
+
+      <.tour_metric_bridge />
 
       <.card class="py-3">
         <p class="text-xs text-js-text-muted">

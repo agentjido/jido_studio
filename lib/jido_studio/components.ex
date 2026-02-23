@@ -196,12 +196,13 @@ defmodule JidoStudio.Components do
 
   attr :title, :string, required: true
   attr :subtitle, :string, default: nil
+  attr :rest, :global
 
   slot :actions
 
   def page_header(assigns) do
     ~H"""
-    <div class="flex items-center justify-between border-b border-js-border pb-4 mb-6">
+    <div class="flex items-center justify-between border-b border-js-border pb-4 mb-6" {@rest}>
       <div>
         <h1 class="text-2xl font-semibold text-js-text">{@title}</h1>
         <p :if={@subtitle} class="mt-1 text-sm text-js-text-muted">{@subtitle}</p>
@@ -210,6 +211,22 @@ defmodule JidoStudio.Components do
         {render_slot(@actions)}
       </div>
     </div>
+    """
+  end
+
+  # —————————————————————————————————————————————
+  # Tour Metrics Bridge
+  # —————————————————————————————————————————————
+
+  def tour_metric_bridge(assigns) do
+    ~H"""
+    <button
+      type="button"
+      class="hidden"
+      data-js-tour-metric
+      phx-click="tour_metric"
+    >
+    </button>
     """
   end
 

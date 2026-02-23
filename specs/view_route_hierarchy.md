@@ -42,22 +42,25 @@ This spec aligns with:
 1. `GET <prefix>/` -> `JidoStudio.HomeLive`
 Primary question: Are my Agents healthy right now?
 
-2. `GET <prefix>/agents` -> `JidoStudio.AgentsLive` (`:index`)
+2. `GET <prefix>/guide` -> `JidoStudio.GuideLive`
+Primary question: How do I get productive with Studio quickly?
+
+3. `GET <prefix>/agents` -> `JidoStudio.AgentsLive` (`:index`)
 Primary question: Which Agents are running and what should I do next?
 
-3. `GET <prefix>/catalog` -> `JidoStudio.CatalogLive`
+4. `GET <prefix>/catalog` -> `JidoStudio.CatalogLive`
 Primary question: What can my Agents do?
 
-4. `GET <prefix>/activity` -> `JidoStudio.ActivityLive`
+5. `GET <prefix>/activity` -> `JidoStudio.ActivityLive`
 Primary question: What happened recently?
 
-5. `GET <prefix>/diagnostics` -> `JidoStudio.DiagnosticsLive`
+6. `GET <prefix>/diagnostics` -> `JidoStudio.DiagnosticsLive`
 Primary question: Why did this fail?
 
-6. `GET <prefix>/settings` -> `JidoStudio.SettingsLive`
+7. `GET <prefix>/settings` -> `JidoStudio.SettingsLive`
 Primary question: How is Studio configured?
 
-7. `GET <prefix>/about` -> `JidoStudio.AboutLive`
+8. `GET <prefix>/about` -> `JidoStudio.AboutLive`
 Primary question: What is Jido Studio and where do I go for help/community?
 
 ## Compatibility Routes
@@ -118,11 +121,12 @@ These remain first-class for technical workflows and deep links:
 
 ## Persona-to-Route Flows
 ### Primary: Agent Operator
-1. `<prefix>/` (health and attention)
-2. `<prefix>/agents`
-3. `<prefix>/agents/:slug/:instance_id/play`
-4. `<prefix>/agents/:slug/:instance_id/observe`
-5. `<prefix>/diagnostics` (if needed)
+1. `<prefix>/guide` (guided start path)
+2. `<prefix>/` (health and attention)
+3. `<prefix>/agents`
+4. `<prefix>/agents/:slug/:instance_id/play`
+5. `<prefix>/agents/:slug/:instance_id/observe`
+6. `<prefix>/diagnostics` (if needed)
 
 ### Secondary: Elixir Developer
 1. `<prefix>/agents/:slug/:instance_id/configure`

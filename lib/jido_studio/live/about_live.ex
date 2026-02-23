@@ -7,8 +7,8 @@ defmodule JidoStudio.AboutLive do
   @default_links [
     %{label: "Agent Jido", url: "https://agentjido.xyz"},
     %{label: "LLMDB", url: "https://llmdb.xyz"},
-    %{label: "GitHub", url: "https://github.com/sagents-ai/jido_studio"},
-    %{label: "Community", url: "https://github.com/sagents-ai/jido/discussions"}
+    %{label: "GitHub", url: "https://github.com/agentjido/jido_studio"},
+    %{label: "Community", url: "https://github.com/agentjido/jido/discussions"}
   ]
 
   @impl true
@@ -41,7 +41,7 @@ defmodule JidoStudio.AboutLive do
         <h2 class="text-sm font-semibold text-js-text">Jido Studio</h2>
         <p class="mt-2 text-sm text-js-text-muted">{@tagline}</p>
         <p class="mt-3 text-xs text-js-text-subtle">
-          Jido Studio gives you one place to observe Agents, understand runtime behavior, and troubleshoot issues without losing access to deep technical tools.
+          What this page is for: understand the product boundary, confirm versions, and open docs/community links for the next step.
         </p>
       </.card>
 

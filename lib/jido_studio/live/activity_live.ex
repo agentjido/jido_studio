@@ -4,8 +4,7 @@ defmodule JidoStudio.ActivityLive do
 
   import JidoStudio.Components
 
-  alias JidoStudio.Cluster.RPC
-  alias JidoStudio.Cluster.Scope
+  alias JidoStudio.Cluster.Collect
   alias JidoStudio.ScopeQuery
   alias JidoStudio.Observability.Actions
   alias JidoStudio.Observability.Signals
@@ -41,7 +40,7 @@ defmodule JidoStudio.ActivityLive do
   def render(assigns) do
     ~H"""
     <div class="p-6 space-y-6">
-      <.page_header title="Activity" subtitle="Recent runtime activity and operational trends">
+      <.page_header title="Activity" subtitle="What happened recently across your agents?">
         <:actions>
           <.badge variant={:default}>runtime:{@runtime_key || "default"}</.badge>
           <.badge variant={:info}>node:{@cluster_node_param || "all"}</.badge>
@@ -121,10 +120,10 @@ defmodule JidoStudio.ActivityLive do
   defp refresh_activity(socket) do
     scope = socket.assigns.cluster_scope
 
-    signals = collect(scope, Signals, :list_signals, [[limit: 60, filters: %{range: "1h"}]])
-    actions = collect(scope, Actions, :list_actions, [[limit: 40, filters: %{range: "1h"}]])
-    workflows = collect(scope, Workflows, :list_runs, [[limit: 40, filters: %{range: "1h"}]])
-    traces = collect(scope, Tracing, :list_traces, [[filters: %{range: "1h"}, limit: 40]])
+    signals = Collect.list(scope, Signals, :list_signals, [[limit: 60, filters: %{range: "1h"}]])
+    actions = Collect.list(scope, Actions, :list_actions, [[limit: 40, filters: %{range: "1h"}]])
+    workflows = Collect.list(scope, Workflows, :list_runs, [[limit: 40, filters: %{range: "1h"}]])
+    traces = Collect.list(scope, Tracing, :list_traces, [[filters: %{range: "1h"}, limit: 40]])
 
     timeline =
       signals_to_events(signals) ++
@@ -147,29 +146,6 @@ defmodule JidoStudio.ActivityLive do
     socket
     |> assign(:summary, summary)
     |> assign(:timeline, timeline)
-  end
-
-  defp collect(:all, module, fun, args) do
-    case RPC.call(:all, module, fun, args) do
-      {:ok, results} when is_list(results) ->
-        results
-        |> Enum.flat_map(fn
-          %{ok?: true, value: items} when is_list(items) -> items
-          _ -> []
-        end)
-
-      _ ->
-        []
-    end
-  end
-
-  defp collect(scope, module, fun, args) do
-    node = Scope.selected_node(scope) || Node.self()
-
-    case RPC.call({:node, node}, module, fun, args) do
-      {:ok, items} when is_list(items) -> items
-      _ -> []
-    end
   end
 
   defp signals_to_events(signals) do

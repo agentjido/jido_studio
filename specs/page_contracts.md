@@ -23,13 +23,29 @@ Required sections:
 Must not contain:
 - raw trace tables as primary content
 
+## Guide
+Primary question: How do I get productive quickly in this product?
+
+Required sections:
+- tour flow cards with duration and clear outcome
+- start/resume/replay controls
+- discovery glossary (discovered modules vs running/active instances)
+- starter module CTA that opens Agents with explicit start confirmation
+- explicit scope-preserving workflow framing
+
+Must not contain:
+- hidden auto-launch behavior without an opt-in control
+
 ## Agents
 Primary question: Which Agents are running and what should I do next?
 
 Required sections:
-- Running/available counts
+- Discovered modules/running/active counts
+- inventory explainer clarifying module vs instance model
 - Fast path into instance manager
+- starter agent card with “why this starter” reason
 - Internal vs product grouping where applicable
+- Source App metadata for discovered module ownership
 - Follow behavior for active instances
 
 Must not contain:

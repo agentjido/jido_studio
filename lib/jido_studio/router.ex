@@ -100,6 +100,7 @@ defmodule JidoStudio.Router do
           on_mount: [{JidoStudio.Hooks, :default} | on_mount],
           root_layout: {JidoStudio.Layouts, :studio} do
           Phoenix.LiveView.Router.live("/", JidoStudio.HomeLive, :index)
+          Phoenix.LiveView.Router.live("/guide", JidoStudio.GuideLive, :index)
           Phoenix.LiveView.Router.live("/agents", JidoStudio.AgentsLive, :index)
 
           Phoenix.LiveView.Router.live(

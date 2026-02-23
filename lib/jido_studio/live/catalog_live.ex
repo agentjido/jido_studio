@@ -83,7 +83,7 @@ defmodule JidoStudio.CatalogLive do
     <div class="p-6 space-y-6">
       <.page_header
         title="Agent Catalog"
-        subtitle="What your agents can do across runtime and discovery"
+        subtitle="What can your agents do across runtime and discovery?"
       >
         <:actions>
           <form phx-change="search" class="flex items-center gap-2">
@@ -102,7 +102,7 @@ defmodule JidoStudio.CatalogLive do
 
       <.card class="py-3">
         <p class="text-xs text-js-text-muted">
-          This page describes available agent capabilities. Use it to discover modules, inputs, and metadata before running workflows.
+          What this page is for: discover capabilities, schemas, and metadata before you run agents or workflows.
         </p>
         <p :if={@catalog_warning} class="mt-2 text-xs text-js-warning">{@catalog_warning}</p>
       </.card>

@@ -18,6 +18,7 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
   def apply_show(socket, slug, params, opts \\ []) do
     jido_instance = socket.assigns[:jido_instance]
     requested_instance_id = Map.get(params, "instance_id")
+    start_modal_requested? = start_modal_requested?(params)
     requested_workbench_tab = Support.requested_workbench_tab(params)
     explicit_workbench_tab? = not is_nil(requested_workbench_tab)
     requested_section = Support.parse_instance_section(Map.get(params, "section"))
@@ -52,10 +53,14 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
         selected_instance =
           case requested_instance_id do
             nil ->
-              if JidoStudio.LiveOps.auto_follow_default?() do
-                List.first(running_instances)
-              else
+              if start_modal_requested? do
                 nil
+              else
+                if JidoStudio.LiveOps.auto_follow_default?() do
+                  List.first(running_instances)
+                else
+                  nil
+                end
               end
 
             id ->
@@ -175,6 +180,10 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
         |> assign(:runtime_status, runtime_status)
         |> assign(:scope_filters, scope_filters)
         |> assign(
+          :start_modal_open?,
+          start_modal_requested? and socket.assigns[:jido_configured?] == true
+        )
+        |> assign(
           :instance_debug_enabled?,
           if(selected_instance, do: instance_debug_enabled(selected_instance), else: false)
         )
@@ -216,6 +225,27 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
         |> maybe_track_followed_viewer.()
     end
   end
+
+  def start_modal_requested?(params) when is_map(params) do
+    params
+    |> Map.get("start")
+    |> normalize_start_param()
+  end
+
+  def start_modal_requested?(_), do: false
+
+  defp normalize_start_param(value) when is_binary(value) do
+    normalized =
+      value
+      |> String.trim()
+      |> String.downcase()
+
+    normalized in ["1", "true", "yes", "on"]
+  end
+
+  defp normalize_start_param(value) when is_integer(value), do: value == 1
+  defp normalize_start_param(value) when is_boolean(value), do: value
+  defp normalize_start_param(_), do: false
 
   def parse_detail_tab(nil, detail_tabs), do: default_detail_tab(detail_tabs)
 

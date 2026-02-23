@@ -66,7 +66,14 @@ Add/extend tests for:
 Instrument setup and scope events:
 - runtime selected
 - node selected
-- setup step completed
-- onboarding profile applied
+- setup step evaluated
+- onboarding profile selected
 
 These events support product metrics from first principles.
+
+Instrument phase-5 product metrics:
+- interaction started/completed
+- first interaction succeeded
+- warning opened
+- root cause opened
+- incident next-step links evaluated

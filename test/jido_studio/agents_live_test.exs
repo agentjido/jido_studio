@@ -258,6 +258,21 @@ defmodule JidoStudio.AgentsLiveTest do
   end
 
   test "guarded runner requires arming before execute and succeeds after arming", %{conn: conn} do
+    started_event = [:jido_studio, :interaction, :started]
+    completed_event = [:jido_studio, :interaction, :completed]
+    first_success_event = [:jido_studio, :onboarding, :first_interaction_succeeded]
+    handler_id = "agents-interaction-metrics-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        [started_event, completed_event, first_success_event],
+        &__MODULE__.handle_telemetry_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
     instance_id = "non-chat-runner-#{System.unique_integer([:positive])}"
 
     assert {:ok, _pid} = Jido.start_agent(TestJido, NonChatAgent, id: instance_id)
@@ -274,6 +289,75 @@ defmodule JidoStudio.AgentsLiveTest do
     render_click(view, "run_selected_interaction", %{})
 
     assert render(view) =~ "status: :ok"
+
+    assert_receive {:telemetry_event, ^started_event, started_measurements, started_metadata}
+    assert started_measurements.count == 1
+    assert started_metadata.mode == "interact"
+    assert started_metadata.source == "agents_interact"
+
+    assert_receive {:telemetry_event, ^completed_event, completed_measurements,
+                    completed_metadata}
+
+    assert completed_measurements.count == 1
+    assert completed_metadata.mode == "interact"
+    assert completed_metadata.status == "success"
+
+    assert_receive {:telemetry_event, ^first_success_event, first_measurements, first_metadata}
+    assert first_measurements.count == 1
+    assert first_metadata.mode == "interact"
+    assert first_metadata.source == "agents_interact"
+  end
+
+  test "dispatch failure emits interaction error telemetry without first-success metric", %{
+    conn: conn
+  } do
+    started_event = [:jido_studio, :interaction, :started]
+    completed_event = [:jido_studio, :interaction, :completed]
+    first_success_event = [:jido_studio, :onboarding, :first_interaction_succeeded]
+    handler_id = "agents-interaction-failure-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        [started_event, completed_event, first_success_event],
+        &__MODULE__.handle_telemetry_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    instance_id = "non-chat-failing-runner-#{System.unique_integer([:positive])}"
+
+    assert {:ok, agent_pid} = Jido.start_agent(TestJido, NonChatAgent, id: instance_id)
+
+    slug = slug_for_module(NonChatAgent)
+
+    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+
+    render_click(view, "arm_runner_execute", %{})
+
+    Process.exit(agent_pid, :kill)
+    Process.sleep(30)
+
+    render_click(view, "run_selected_interaction", %{})
+
+    assert_receive {:telemetry_event, ^started_event, started_measurements, started_metadata}
+    assert started_measurements.count == 1
+    assert started_metadata.mode == "interact"
+    assert started_metadata.dispatch_mode == "sync"
+    assert started_metadata.source == "agents_interact"
+
+    assert_receive {:telemetry_event, ^completed_event, completed_measurements,
+                    completed_metadata}
+
+    assert completed_measurements.count == 1
+    assert completed_metadata.mode == "interact"
+    assert completed_metadata.status == "error"
+    assert completed_metadata.dispatch_mode == "sync"
+    assert completed_metadata.source == "agents_interact"
+
+    refute_receive {:telemetry_event, ^first_success_event, _first_measurements, _first_metadata},
+                   50
   end
 
   test "runner arm resets when payload changes", %{conn: conn} do
@@ -398,6 +482,77 @@ defmodule JidoStudio.AgentsLiveTest do
     assert html =~ "internal"
   end
 
+  test "index renders inventory explainer, source app column, and starter card", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/studio/agents")
+
+    assert html =~ "Discovered Modules"
+    assert html =~ "Inventory Model"
+    assert html =~ "Source App"
+    assert html =~ "Starter Agent"
+  end
+
+  test "open_starter_agent emits onboarding starter telemetry", %{conn: conn} do
+    event = [:jido_studio, :onboarding, :starter_opened]
+    handler_id = "agents-starter-opened-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        &__MODULE__.handle_telemetry_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    {:ok, view, _html} = live(conn, "/studio/agents")
+
+    render_click(view, "open_starter_agent", %{
+      "path" => "/studio/agents",
+      "mode" => "agents_index_card",
+      "starter_slug" => "starter",
+      "starter_module" => "JidoStudio.BeginnerAgent"
+    })
+
+    assert_receive {:telemetry_event, ^event, %{count: 1}, metadata}
+    assert metadata.source == "agents_starter_card"
+    assert metadata.mode == "agents_index_card"
+    assert metadata.starter_slug == "starter"
+  end
+
+  test "start=1 opens start modal, bypasses auto-follow, and emits modal telemetry", %{conn: conn} do
+    event = [:jido_studio, :onboarding, :starter_start_modal_opened]
+    handler_id = "agents-starter-modal-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        &__MODULE__.handle_telemetry_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    instance_id = "start-modal-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _pid} =
+             Jido.start_agent(TestJido, Jido.AI.Examples.CalculatorAgent, id: instance_id)
+
+    slug = slug_for_module(Jido.AI.Examples.CalculatorAgent)
+
+    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}?start=1")
+
+    assert has_element?(view, "h3#start-instance-modal-title", "Start Instance")
+    assert render(view) =~ "Select a running instance to open chat, settings, and threads."
+    refute render(view) =~ "Instance Menu"
+    assert AgentRegistry.running_count(TestJido) == 1
+
+    assert_receive {:telemetry_event, ^event, %{count: 1}, metadata}
+    assert metadata.source == "agents_start_query"
+    assert metadata.mode == "deep_link"
+  end
+
   defp short(id) when is_binary(id), do: String.slice(id, 0, 12)
 
   defp slug_for_module(module) do
@@ -433,5 +588,9 @@ defmodule JidoStudio.AgentsLiveTest do
         Application.put_env(app, key, previous)
       end
     end
+  end
+
+  def handle_telemetry_event(event, measurements, metadata, pid) do
+    send(pid, {:telemetry_event, event, measurements, metadata})
   end
 end

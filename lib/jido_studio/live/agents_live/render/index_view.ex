@@ -10,11 +10,13 @@ defmodule JidoStudio.Live.AgentsLive.Render.IndexView do
   def index(assigns) do
     ~H"""
     <div class="p-6 space-y-6">
-      <.page_header title="Agents" subtitle="Manage and interact with your AI agents">
+      <.page_header title="Agents" subtitle="Which agents are running and what should you do next?">
         <:actions>
           <.button size={:sm} phx-click="refresh">Refresh</.button>
         </:actions>
       </.page_header>
+
+      <.tour_metric_bridge />
 
       <div
         :if={not @jido_configured?}
@@ -39,7 +41,7 @@ defmodule JidoStudio.Live.AgentsLive.Render.IndexView do
         />
       </form>
 
-      <.card>
+      <.card data-tour-id="agents-live-ops-scope">
         <div class="flex items-center justify-between gap-3 mb-3">
           <h3 class="text-sm font-medium text-js-text">Live Ops Scope</h3>
           <.badge variant={if(@live_ops_realtime?, do: :success, else: :warning)}>
@@ -145,7 +147,7 @@ defmodule JidoStudio.Live.AgentsLive.Render.IndexView do
       </.card>
 
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <.stat_card label="Discovered Agents" value={to_string(length(@agents))} />
+        <.stat_card label="Discovered Modules" value={to_string(length(@agents))} />
         <.stat_card label="Running" value={to_string(@running_count)} />
         <.stat_card label="Active Instances" value={to_string(length(@filtered_instances || []))} />
         <.stat_card
@@ -154,7 +156,84 @@ defmodule JidoStudio.Live.AgentsLive.Render.IndexView do
         />
       </div>
 
-      <.card>
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <.card data-tour-id="agents-inventory-explainer">
+          <div class="flex items-center justify-between gap-3">
+            <h3 class="text-sm font-medium text-js-text">Inventory Model</h3>
+            <.badge variant={:default}>runtime:{@runtime_key || "default"}</.badge>
+          </div>
+
+          <p class="mt-2 text-xs text-js-text-muted">
+            Why counts can look high: discovered modules include every compiled agent module in
+            the selected runtime, even when not currently running.
+          </p>
+
+          <ul class="mt-3 space-y-1.5 text-xs text-js-text-muted">
+            <li><span class="text-js-text">Discovered modules:</span> available agent modules.</li>
+            <li><span class="text-js-text">Running instances:</span> processes started now.</li>
+            <li>
+              <span class="text-js-text">Active instances:</span>
+              running instances in current filters.
+            </li>
+            <li>
+              <span class="text-js-text">Scope impact:</span> `runtime` and `node` selection can
+              change all counts.
+            </li>
+          </ul>
+
+          <p class="mt-3 text-[11px] text-js-text-subtle">
+            Next action: pick a starter module, open `Start Instance`, and run one deterministic interaction.
+          </p>
+        </.card>
+
+        <.card data-tour-id="agents-starter-agent">
+          <div class="flex items-center justify-between gap-3">
+            <h3 class="text-sm font-medium text-js-text">Starter Agent</h3>
+            <.badge variant={if(starter_running?(@starter_agent), do: :success, else: :default)}>
+              {if(starter_running?(@starter_agent), do: "running", else: "available")}
+            </.badge>
+          </div>
+
+          <%= if @starter_agent do %>
+            <p class="mt-2 text-xs text-js-text">
+              {humanize_agent_name(@starter_agent.name || @starter_agent.slug || "starter")}
+            </p>
+            <p class="mt-1 text-xs text-js-text-muted">
+              Why this starter: {@starter_reason}
+            </p>
+            <div class="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                phx-click="open_starter_agent"
+                phx-value-path={@starter_launch_path || scoped_path(@prefix <> "/agents")}
+                phx-value-mode="agents_index_card"
+                phx-value-starter_slug={@starter_agent.slug || ""}
+                phx-value-starter_module={
+                  if(is_atom(@starter_agent.module), do: inspect(@starter_agent.module), else: "")
+                }
+                class="inline-flex items-center rounded-md bg-js-primary px-3 py-1.5 text-xs font-medium text-js-primary-foreground hover:brightness-110"
+              >
+                Open Starter Module
+              </button>
+              <span class="text-[11px] text-js-text-subtle">
+                Opens module + start modal (`start=1`).
+              </span>
+            </div>
+          <% else %>
+            <p class="mt-2 text-xs text-js-text-muted">
+              {@starter_reason || "No starter is available in this scope."}
+            </p>
+            <.link
+              navigate={scoped_path(@prefix <> "/guide")}
+              class="mt-3 inline-flex items-center rounded-md border border-js-border px-3 py-1.5 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+            >
+              Open Guide
+            </.link>
+          <% end %>
+        </.card>
+      </div>
+
+      <.card data-tour-id="agents-active-instances">
         <div class="flex items-center justify-between gap-3 mb-3">
           <h3 class="text-sm font-medium text-js-text">Active Instances</h3>
           <.badge variant={if(@live_ops_presence?, do: :success, else: :warning)}>
@@ -368,6 +447,11 @@ defmodule JidoStudio.Live.AgentsLive.Render.IndexView do
                 {agent.description}
               </span>
             </:col>
+            <:col :let={agent} label="Source App">
+              <span class="text-xs text-js-text-subtle font-mono">
+                {source_app_label(agent)}
+              </span>
+            </:col>
             <:col :let={agent} label="Tags">
               <div class="flex flex-wrap gap-1">
                 <.badge :for={tag <- agent.tags || []}>{tag}</.badge>
@@ -398,6 +482,11 @@ defmodule JidoStudio.Live.AgentsLive.Render.IndexView do
             <:col :let={agent} label="Description">
               <span class="text-xs text-js-text-muted truncate max-w-md block">
                 {agent.description}
+              </span>
+            </:col>
+            <:col :let={agent} label="Source App">
+              <span class="text-xs text-js-text-subtle font-mono">
+                {source_app_label(agent)}
               </span>
             </:col>
             <:col :let={agent} label="Tags">
@@ -434,4 +523,13 @@ defmodule JidoStudio.Live.AgentsLive.Render.IndexView do
   defp datetime_to_unix_ms(datetime), do: ShowState.datetime_to_unix_ms(datetime)
   defp format_datetime(datetime), do: ShowState.format_datetime(datetime)
   defp format_uptime(ms), do: ShowState.format_uptime(ms)
+  defp scoped_path(path), do: ShowState.scoped_path(path)
+
+  defp starter_running?(%{running_instances: instances}) when is_list(instances),
+    do: instances != []
+
+  defp starter_running?(_), do: false
+
+  defp source_app_label(%{source_app: source}) when is_binary(source) and source != "", do: source
+  defp source_app_label(_), do: "n/a"
 end

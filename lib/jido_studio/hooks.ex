@@ -2,6 +2,7 @@ defmodule JidoStudio.Hooks do
   @moduledoc false
 
   alias JidoStudio.Cluster.Scope
+  alias JidoStudio.ProductMetrics
   alias JidoStudio.RuntimeScope
   alias JidoStudio.Telemetry
 
@@ -19,6 +20,7 @@ defmodule JidoStudio.Hooks do
     runtime_module = RuntimeScope.runtime_module_for_key(runtime_options, selected_runtime_key)
     host_app_js_path = Map.get(session, "host_app_js_path", "/assets/app.js")
     extension_nav_sections = Map.get(session, "extension_nav_sections", [])
+    metrics_session_id = ProductMetrics.session_id(Map.get(session, "_csrf_token"))
 
     socket =
       socket
@@ -36,6 +38,7 @@ defmodule JidoStudio.Hooks do
       |> assign(:current_path, "")
       |> assign(:route_params, normalize_params(params))
       |> assign(:current_query, %{})
+      |> assign(:metrics_session_id, metrics_session_id)
       |> assign(:prefix, prefix)
       |> assign(:cluster_enabled?, Scope.enabled?())
       |> assign(:cluster_scope, Scope.default_scope())
