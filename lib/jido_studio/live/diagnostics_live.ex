@@ -5,7 +5,11 @@ defmodule JidoStudio.DiagnosticsLive do
   import JidoStudio.Components
 
   alias JidoStudio.Cluster.RPC
-  alias JidoStudio.ScopeQuery
+  alias JidoStudio.Cluster.Scope
+  alias JidoStudio.Diagnostics.Components, as: DiagnosticsComponents
+  alias JidoStudio.Diagnostics.Timeline
+  alias JidoStudio.TraceFilter
+  alias JidoStudio.Tracing
 
   @refresh_ms 5_000
 
@@ -18,13 +22,83 @@ defmodule JidoStudio.DiagnosticsLive do
       |> assign(:page_title, "Diagnostics")
       |> assign(:node_snapshots, [])
       |> assign(:diagnostic_warning, nil)
+      |> assign(:view, "overview")
+      |> assign(:timeline_filters, default_timeline_filters())
+      |> assign(:timeline_entity_types, Timeline.entity_types())
+      |> assign(:timeline_recent_traces, [])
+      |> assign(:timeline_model, nil)
+      |> assign(:timeline_warning, nil)
+      |> assign(:timeline_node_required?, false)
 
     {:ok, socket}
   end
 
   @impl true
-  def handle_params(_params, _uri, socket) do
-    {:noreply, refresh_diagnostics(socket)}
+  def handle_params(params, _uri, socket) do
+    view = normalize_view(params["view"])
+
+    socket =
+      socket
+      |> assign(:view, view)
+      |> assign(:timeline_filters, parse_timeline_filters(params))
+      |> refresh_diagnostics()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("timeline_filters_change", %{"timeline" => params}, socket) do
+    current = socket.assigns.timeline_filters
+
+    updated =
+      current
+      |> Map.merge(parse_timeline_form(params))
+      |> maybe_clear_selected_span(current, params)
+
+    {:noreply,
+     push_patch(socket,
+       to:
+         DiagnosticsComponents.timeline_path(
+           socket.assigns.prefix,
+           updated,
+           socket.assigns.runtime_key,
+           socket.assigns.cluster_node_param
+         )
+     )}
+  end
+
+  @impl true
+  def handle_event("select_timeline_span", %{"span_id" => span_id}, socket) do
+    filters =
+      socket.assigns.timeline_filters
+      |> Map.put(:span_id, normalize_optional_string(span_id))
+
+    {:noreply,
+     push_patch(socket,
+       to:
+         DiagnosticsComponents.timeline_path(
+           socket.assigns.prefix,
+           filters,
+           socket.assigns.runtime_key,
+           socket.assigns.cluster_node_param
+         )
+     )}
+  end
+
+  @impl true
+  def handle_event("clear_timeline_span", _params, socket) do
+    filters = Map.put(socket.assigns.timeline_filters, :span_id, nil)
+
+    {:noreply,
+     push_patch(socket,
+       to:
+         DiagnosticsComponents.timeline_path(
+           socket.assigns.prefix,
+           filters,
+           socket.assigns.runtime_key,
+           socket.assigns.cluster_node_param
+         )
+     )}
   end
 
   @impl true
@@ -41,6 +115,45 @@ defmodule JidoStudio.DiagnosticsLive do
         subtitle="Technical tools for debugging agents and runtime behavior"
       >
         <:actions>
+          <div class="inline-flex rounded-md border border-js-border bg-js-bg-elevated p-1">
+            <.link
+              patch={
+                DiagnosticsComponents.overview_path(
+                  @prefix,
+                  @runtime_key,
+                  @cluster_node_param
+                )
+              }
+              class={[
+                "rounded px-2.5 py-1 text-xs transition-colors",
+                if(@view == "overview",
+                  do: "bg-js-muted text-js-text",
+                  else: "text-js-text-muted hover:text-js-text"
+                )
+              ]}
+            >
+              Overview
+            </.link>
+            <.link
+              patch={
+                DiagnosticsComponents.timeline_path(
+                  @prefix,
+                  @timeline_filters,
+                  @runtime_key,
+                  @cluster_node_param
+                )
+              }
+              class={[
+                "rounded px-2.5 py-1 text-xs transition-colors",
+                if(@view == "timeline",
+                  do: "bg-js-muted text-js-text",
+                  else: "text-js-text-muted hover:text-js-text"
+                )
+              ]}
+            >
+              Timeline (Advanced)
+            </.link>
+          </div>
           <.badge variant={:default}>runtime:{@runtime_key || "default"}</.badge>
           <.badge variant={:info}>node:{@cluster_node_param || "all"}</.badge>
         </:actions>
@@ -53,76 +166,26 @@ defmodule JidoStudio.DiagnosticsLive do
         <p :if={@diagnostic_warning} class="mt-2 text-xs text-js-warning">{@diagnostic_warning}</p>
       </.card>
 
-      <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] gap-4">
-        <.card>
-          <h2 class="text-sm font-semibold text-js-text">Cluster Runtime Status</h2>
-
-          <div :if={@node_snapshots == []} class="mt-4">
-            <.empty_state
-              title="No diagnostics available"
-              description="Node diagnostics are unavailable for the current scope."
-            />
-          </div>
-
-          <div :if={@node_snapshots != []} class="mt-3 divide-y divide-js-border">
-            <div
-              :for={snapshot <- @node_snapshots}
-              class="py-2 flex items-start justify-between gap-3"
-            >
-              <div>
-                <div class="text-xs text-js-text font-mono">{snapshot.node}</div>
-                <div class="text-[11px] text-js-text-subtle">
-                  OTP {snapshot.otp_release} | Elixir {snapshot.elixir_version}
-                </div>
-                <div class="text-[11px] text-js-text-subtle">
-                  Discovery: {bool_label(snapshot.discovery_loaded)} | Traces: {bool_label(
-                    snapshot.tracing_available
-                  )}
-                </div>
-              </div>
-              <.badge variant={if(snapshot.ok?, do: :success, else: :warning)}>
-                {if(snapshot.ok?, do: "reachable", else: "unreachable")}
-              </.badge>
-            </div>
-          </div>
-        </.card>
-
-        <.card>
-          <h2 class="text-sm font-semibold text-js-text">Deep Tools</h2>
-          <div class="mt-3 space-y-2">
-            <.link
-              navigate={page_path(@prefix, "/traces", @runtime_key, @cluster_node_param)}
-              class="block rounded-md border border-js-border px-3 py-2 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-            >
-              Traces Explorer
-            </.link>
-            <.link
-              navigate={page_path(@prefix, "/actions", @runtime_key, @cluster_node_param)}
-              class="block rounded-md border border-js-border px-3 py-2 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-            >
-              Action Diagnostics
-            </.link>
-            <.link
-              navigate={page_path(@prefix, "/workflows", @runtime_key, @cluster_node_param)}
-              class="block rounded-md border border-js-border px-3 py-2 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-            >
-              Workflow Analysis
-            </.link>
-            <.link
-              navigate={page_path(@prefix, "/signals", @runtime_key, @cluster_node_param)}
-              class="block rounded-md border border-js-border px-3 py-2 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-            >
-              Signal Stream
-            </.link>
-            <.link
-              navigate={page_path(@prefix, "/threads", @runtime_key, @cluster_node_param)}
-              class="block rounded-md border border-js-border px-3 py-2 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-            >
-              Threads and Memory
-            </.link>
-          </div>
-        </.card>
-      </div>
+      <%= if @view == "timeline" do %>
+        <DiagnosticsComponents.timeline_view
+          prefix={@prefix}
+          runtime_key={@runtime_key}
+          cluster_node_param={@cluster_node_param}
+          timeline_filters={@timeline_filters}
+          timeline_entity_types={@timeline_entity_types}
+          timeline_recent_traces={@timeline_recent_traces}
+          timeline_model={@timeline_model}
+          timeline_warning={@timeline_warning}
+          timeline_node_required?={@timeline_node_required?}
+        />
+      <% else %>
+        <DiagnosticsComponents.overview_view
+          prefix={@prefix}
+          runtime_key={@runtime_key}
+          cluster_node_param={@cluster_node_param}
+          node_snapshots={@node_snapshots}
+        />
+      <% end %>
     </div>
     """
   end
@@ -150,6 +213,12 @@ defmodule JidoStudio.DiagnosticsLive do
   end
 
   defp refresh_diagnostics(socket) do
+    socket
+    |> refresh_node_snapshots()
+    |> maybe_refresh_timeline()
+  end
+
+  defp refresh_node_snapshots(socket) do
     scope = socket.assigns.cluster_scope
 
     snapshots =
@@ -191,10 +260,176 @@ defmodule JidoStudio.DiagnosticsLive do
     |> assign(:diagnostic_warning, warning)
   end
 
-  defp bool_label(true), do: "available"
-  defp bool_label(false), do: "not available"
+  defp maybe_refresh_timeline(%{assigns: %{view: "timeline"}} = socket) do
+    selected_node = Scope.selected_node(socket.assigns.cluster_scope)
 
-  defp page_path(prefix, suffix, runtime_key, node_param) do
-    ScopeQuery.with_scope_query(prefix <> suffix, runtime_key, node_param)
+    if is_nil(selected_node) do
+      socket
+      |> assign(:timeline_node_required?, true)
+      |> assign(:timeline_recent_traces, [])
+      |> assign(:timeline_model, nil)
+      |> assign(
+        :timeline_warning,
+        "Timeline requires a concrete node. Open Advanced Scope and select a node."
+      )
+    else
+      refresh_timeline_for_node(socket, selected_node)
+    end
+  end
+
+  defp maybe_refresh_timeline(socket) do
+    socket
+    |> assign(:timeline_node_required?, false)
+    |> assign(:timeline_recent_traces, [])
+    |> assign(:timeline_model, nil)
+    |> assign(:timeline_warning, nil)
+  end
+
+  defp refresh_timeline_for_node(socket, node) do
+    scope = {:node, node}
+    filters = socket.assigns.timeline_filters
+
+    recent_traces = Timeline.pick_recent_traces(scope, limit: 50, range: "1h")
+    trace_id = filters.trace_id
+
+    socket =
+      socket
+      |> assign(:timeline_node_required?, false)
+      |> assign(:timeline_recent_traces, recent_traces)
+
+    if is_nil(trace_id) do
+      socket
+      |> assign(:timeline_model, nil)
+      |> assign(:timeline_warning, nil)
+    else
+      span_cap = timeline_span_cap()
+      entity_filter = if(filters.entity_type in [nil, "all"], do: nil, else: filters.entity_type)
+      span_filters = %{hide_internal: filters.hide_internal, entity_type: entity_filter}
+
+      with {:ok, trace} <- fetch_trace(scope, trace_id),
+           {:ok, spans} when is_list(spans) <-
+             RPC.call(scope, Tracing, :list_trace_spans, [
+               trace_id,
+               [limit: span_cap, filters: span_filters]
+             ]) do
+        model =
+          Timeline.build(trace, spans,
+            selected_span_id: filters.span_id,
+            critical: filters.critical,
+            span_cap: span_cap
+          )
+
+        socket
+        |> assign(:timeline_model, model)
+        |> assign(:timeline_warning, nil)
+      else
+        {:error, reason} ->
+          socket
+          |> assign(:timeline_model, nil)
+          |> assign(:timeline_warning, timeline_error_message(reason))
+
+        _ ->
+          socket
+          |> assign(:timeline_model, nil)
+          |> assign(:timeline_warning, "Selected trace is unavailable on this node.")
+      end
+    end
+  end
+
+  defp timeline_error_message(%{kind: :nodedown}) do
+    "Selected node is unreachable for timeline RPC calls."
+  end
+
+  defp timeline_error_message(%{kind: :timeout}) do
+    "Timeline RPC timed out for selected node."
+  end
+
+  defp timeline_error_message(:not_found) do
+    "Selected trace is unavailable on this node."
+  end
+
+  defp timeline_error_message(_reason) do
+    "Timeline data is unavailable for the selected node."
+  end
+
+  defp fetch_trace(scope, trace_id) do
+    case RPC.call(scope, Tracing, :get_trace, [trace_id]) do
+      {:ok, {:ok, trace}} when is_map(trace) -> {:ok, trace}
+      {:ok, :not_found} -> {:error, :not_found}
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp default_timeline_filters do
+    %{
+      trace_id: nil,
+      span_id: nil,
+      critical: true,
+      entity_type: "all",
+      hide_internal: TraceFilter.hide_internal_default?()
+    }
+  end
+
+  defp parse_timeline_filters(params) when is_map(params) do
+    %{
+      trace_id: normalize_optional_string(params["trace_id"]),
+      span_id: normalize_optional_string(params["span_id"]),
+      critical: parse_boolean(params["critical"], true),
+      entity_type: normalize_entity_type(params["entity_type"]),
+      hide_internal: parse_boolean(params["hide_internal"], TraceFilter.hide_internal_default?())
+    }
+  end
+
+  defp parse_timeline_filters(_), do: default_timeline_filters()
+
+  defp parse_timeline_form(params) when is_map(params) do
+    %{
+      trace_id: normalize_optional_string(params["trace_id"]),
+      critical: parse_boolean(params["critical"], true),
+      entity_type: normalize_entity_type(params["entity_type"]),
+      hide_internal: parse_boolean(params["hide_internal"], TraceFilter.hide_internal_default?())
+    }
+  end
+
+  defp parse_timeline_form(_), do: %{}
+
+  defp maybe_clear_selected_span(updated, current, params) do
+    trace_from_form = normalize_optional_string(params["trace_id"])
+
+    if trace_from_form != current.trace_id do
+      Map.put(updated, :span_id, nil)
+    else
+      Map.put(updated, :span_id, current.span_id)
+    end
+  end
+
+  defp normalize_view("timeline"), do: "timeline"
+  defp normalize_view(_), do: "overview"
+
+  defp normalize_entity_type(value) when is_binary(value) do
+    normalized = String.downcase(String.trim(value))
+    if normalized in Timeline.entity_types(), do: normalized, else: "all"
+  end
+
+  defp normalize_entity_type(_), do: "all"
+
+  defp parse_boolean(nil, default), do: default
+  defp parse_boolean(value, _default) when value in [true, "true", "1", 1], do: true
+  defp parse_boolean(value, _default) when value in [false, "false", "0", 0], do: false
+  defp parse_boolean(_value, default), do: default
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_optional_string(_), do: nil
+
+  defp timeline_span_cap do
+    min(TraceFilter.max_span_rows(), 2_000)
   end
 end

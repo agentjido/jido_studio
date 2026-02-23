@@ -26,6 +26,27 @@ Provide an implementation sequence that delivers a coherent operator-first produ
 - setup assistant on Home + Settings entry
 - setup checks (runtime, persistence, realtime, chat keys, smoke test)
 - config profile snippets and status badges
+- setup regression re-entry banner with local persistence
+- setup/scope telemetry hooks for runtime, node, step, and profile changes
+
+### Progress Notes (Current Branch)
+- Added shared setup domain builder:
+  - `lib/jido_studio/setup.ex`
+- Added profile guidance module:
+  - `lib/jido_studio/setup/profiles.ex`
+- Wired Home + Settings to shared checks and profile guidance:
+  - `lib/jido_studio/live/home_live.ex`
+  - `lib/jido_studio/live/settings_live.ex`
+- Added setup/scope telemetry wrapper and emissions:
+  - `lib/jido_studio/telemetry.ex`
+  - `lib/jido_studio/hooks.ex`
+- Added local setup regression re-entry behavior:
+  - `priv/static/jido_studio.js`
+- Added additive coverage for setup logic, Home, Settings, and telemetry:
+  - `test/jido_studio/setup_test.exs`
+  - `test/jido_studio/home_live_test.exs`
+  - `test/jido_studio/settings_live_test.exs`
+  - `test/jido_studio/setup_telemetry_test.exs`
 
 ### Gates
 - onboarding completion flow tests
@@ -57,6 +78,19 @@ Provide an implementation sequence that delivers a coherent operator-first produ
 - timeline view under Diagnostics advanced mode
 - single-trace waterfall with critical path highlight
 - deep links to traces/actions/signals pages
+
+### Progress Notes (Current Branch)
+- Added dedicated timeline shaping module:
+  - `lib/jido_studio/diagnostics/timeline.ex`
+- Extended Diagnostics route/query semantics:
+  - `view`, `trace_id`, `span_id`, `critical`, `entity_type`, `hide_internal`
+- Added concrete-node requirement for timeline mode:
+  - `node=all` now shows explicit node-selection guidance.
+- Added timeline controls and waterfall surface in `DiagnosticsLive`:
+  - trace picker, lane filters, critical/hide toggles, span detail pane, deep links.
+- Added timeline-focused test coverage:
+  - `test/jido_studio/diagnostics_live_test.exs`
+  - `test/jido_studio/diagnostics_timeline_test.exs`
 
 ### Gates
 - payload cap and performance checks

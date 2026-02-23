@@ -26,10 +26,15 @@ Out of scope for v1:
   - `<prefix>/diagnostics?view=timeline`
 - Optional query:
   - `trace_id=<trace_id>`
+  - `span_id=<span_id>`
+  - `critical=0|1`
+  - `entity_type=all|agent|model|tool|middleware|scheduler|sensor|other`
+  - `hide_internal=0|1`
   - `runtime=<runtime_key>`
-  - `node=<node>`
+  - `node=<node_name>`
 
 If `trace_id` is missing, show recent trace picker.
+If `node=all`, timeline rendering is disabled and UI prompts the user to select a concrete node.
 
 ## Visual Model
 Lanes grouped by:
@@ -81,3 +86,10 @@ Required span fields:
 2. Timeline remains responsive at configured span cap.
 3. Critical path view identifies top contributors to latency.
 4. Timeline can deep-link back to existing traces/actions/signals pages.
+
+## V1 Implementation Notes (Current Branch)
+1. Timeline remains in Diagnostics advanced mode only; Traces page remains canonical deep explorer.
+2. Span cap reuses existing `TraceFilter.max_span_rows/0` with a hard upper bound of `2_000`.
+3. Missing timing fields are handled explicitly:
+   spans without usable timing are excluded from bars and reported in warnings.
+4. `critical=1` enables critical-path emphasis and `critical=0` disables that emphasis.

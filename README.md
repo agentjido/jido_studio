@@ -175,6 +175,26 @@ config :jido_studio,
   ]
 ```
 
+### Setup Assistant and Profiles
+
+After mount, Studio surfaces a Setup Assistant on `Home` with a re-entry card in `Settings`.
+Checks cover:
+
+- runtime connectivity/reachability
+- persistence durability mode
+- realtime event-driven vs polling fallback
+- optional chat provider key presence
+- smoke-path readiness
+
+Profiles are guidance-only presets shown in-app:
+
+- `Local Dev Fast Start`
+- `Chat Demo Showcase`
+- `Team Durable Ops`
+
+`Apply profile snippet` means show/copy snippet text with "What changes?" and rollback notes.
+Studio does not mutate host config files.
+
 ### 3. Mount in the Phoenix router
 
 ```elixir

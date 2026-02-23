@@ -3,6 +3,7 @@ defmodule JidoStudio.Hooks do
 
   alias JidoStudio.Cluster.Scope
   alias JidoStudio.RuntimeScope
+  alias JidoStudio.Telemetry
 
   import Phoenix.Component
   import Phoenix.LiveView, only: [attach_hook: 4]
@@ -71,6 +72,14 @@ defmodule JidoStudio.Hooks do
           query
           |> Map.put("node", node_param)
           |> maybe_put_runtime_query(runtime_key)
+
+        emit_scope_selection_events(
+          socket.assigns[:runtime_key],
+          runtime_key,
+          socket.assigns[:cluster_node_param],
+          node_param,
+          parsed_uri.path || ""
+        )
 
         {:cont,
          socket
@@ -141,4 +150,21 @@ defmodule JidoStudio.Hooks do
   end
 
   defp node_scope_warning(_requested_node, _node_param), do: nil
+
+  defp emit_scope_selection_events(previous_runtime, runtime_key, previous_node, node_param, path) do
+    if normalize_optional_string(previous_runtime) != normalize_optional_string(runtime_key) do
+      Telemetry.execute([:scope, :runtime_selected], %{count: 1}, %{
+        runtime: runtime_key,
+        path: path
+      })
+    end
+
+    if Scope.normalize_node_param(previous_node) != Scope.normalize_node_param(node_param) do
+      Telemetry.execute([:scope, :node_selected], %{count: 1}, %{
+        node: Scope.normalize_node_param(node_param),
+        runtime: runtime_key,
+        path: path
+      })
+    end
+  end
 end

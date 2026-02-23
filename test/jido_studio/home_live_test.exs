@@ -19,10 +19,34 @@ defmodule JidoStudio.HomeLiveTest do
     assert recent_idx < example_idx
   end
 
+  test "renders setup summary labels and profile guidance", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/studio")
+
+    assert html =~ "Setup Assistant"
+    assert html =~ "Recommended Improvements"
+    assert html =~ "Active Profile:"
+    assert html =~ "Apply profile snippet"
+    assert html =~ "What changes?"
+    assert html =~ "Rollback:"
+  end
+
+  test "renders setup check CTAs for recovery and guidance", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/studio")
+
+    assert html =~ "Open config snippet"
+    assert html =~ "Re-test"
+    assert html =~ "Use durable profile"
+    assert html =~ "Continue with polling"
+    assert html =~ "Use Interact (non-chat)"
+    assert html =~ "Run smoke interaction"
+  end
+
   test "renders setup and example visibility controls", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/studio")
 
     assert html =~ "data-js-home-setup"
+    assert html =~ "data-js-home-setup-complete="
+    assert html =~ "data-js-home-setup-regressed"
     assert html =~ "data-js-home-setup-show"
     assert html =~ "data-js-home-example"
     assert html =~ "data-js-home-example-show"

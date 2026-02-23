@@ -3,12 +3,29 @@ defmodule JidoStudio.SettingsLive do
   use Phoenix.LiveView
 
   import JidoStudio.Components
+  import JidoStudio.Setup.Components
+
+  alias JidoStudio.Setup
+  alias JidoStudio.Setup.Helpers
+  alias JidoStudio.Setup.Profiles
   alias JidoStudio.Threads.Storage, as: ThreadsStorage
 
   @impl true
   def mount(_params, _session, socket) do
     observability = Application.get_env(:jido, :observability, [])
-    storage_info = thread_storage_details(socket.assigns[:jido_instance])
+    storage_info = Helpers.thread_storage_details(socket.assigns[:jido_instance])
+
+    setup_assistant =
+      Setup.build(
+        scope: socket.assigns[:cluster_scope],
+        jido_instance: socket.assigns[:jido_instance],
+        prefix: socket.assigns[:prefix],
+        runtime_key: socket.assigns[:runtime_key],
+        node_param: socket.assigns[:cluster_node_param]
+      )
+
+    selected_profile_key = setup_assistant.active_profile_key
+    setup_profile = Profiles.find_profile(selected_profile_key)
 
     socket =
       socket
@@ -53,20 +70,93 @@ defmodule JidoStudio.SettingsLive do
           _ -> "[]"
         end
       )
+      |> assign(:setup_assistant, setup_assistant)
+      |> assign(:setup_profile, setup_profile)
+      |> assign(:selected_setup_profile, selected_profile_key)
+      |> assign(:setup_check_statuses, Setup.check_statuses(setup_assistant))
 
     {:ok, socket}
   end
 
   @impl true
   def handle_params(_params, _uri, socket) do
-    {:noreply, socket}
+    {:noreply, refresh_setup(socket)}
+  end
+
+  @impl true
+  def handle_event("retest_setup", _params, socket) do
+    {:noreply,
+     socket
+     |> refresh_setup()
+     |> put_flash(:info, "Setup checks refreshed.")}
+  end
+
+  @impl true
+  def handle_event("select_setup_profile", %{"value" => profile_key}, socket) do
+    profile =
+      Helpers.select_profile(
+        profile_key,
+        runtime: socket.assigns[:runtime_key],
+        node: socket.assigns[:cluster_node_param],
+        source: "settings"
+      )
+
+    {:noreply,
+     socket
+     |> assign(:selected_setup_profile, profile.key)
+     |> assign(:setup_profile, profile)}
   end
 
   @impl true
   def render(assigns) do
     ~H"""
     <div class="p-6 space-y-6">
-      <.page_header title="Settings" subtitle="Studio configuration and runtime info" />
+      <.page_header title="Settings" subtitle="Studio configuration and runtime info">
+        <:actions>
+          <.badge variant={:default}>runtime:{@runtime_key || "default"}</.badge>
+          <.badge variant={:info}>node:{@cluster_node_param || "all"}</.badge>
+        </:actions>
+      </.page_header>
+
+      <.card>
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h2 class="text-sm font-semibold text-js-text">Setup Assistant</h2>
+            <p class="mt-1 text-xs text-js-text-muted">
+              Re-test setup status and profile guidance without leaving Settings.
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <.badge variant={if(@setup_assistant.core_ready?, do: :success, else: :warning)}>
+              {if(@setup_assistant.core_ready?, do: "Core Ready", else: "Needs Setup")}
+            </.badge>
+            <button
+              type="button"
+              phx-click="retest_setup"
+              class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+            >
+              Re-test
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <.badge variant={:default}>
+            Recommended Improvements {length(@setup_assistant.recommended_improvements)}
+          </.badge>
+          <.badge variant={:info}>
+            Active Profile: {Profiles.find_profile(@setup_assistant.active_profile_key).label}
+          </.badge>
+        </div>
+
+        <.checks_list checks={@setup_assistant.checks} />
+
+        <.profile_guidance
+          setup_assistant={@setup_assistant}
+          setup_profile={@setup_profile}
+          heading="Setup Profile Guidance"
+        />
+      </.card>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <.stat_card label="Studio Version" value={"v#{JidoStudio.version()}"} />
@@ -204,36 +294,43 @@ defmodule JidoStudio.SettingsLive do
     """
   end
 
-  defp thread_storage_details(jido_instance) do
-    case ThreadsStorage.resolve_storage(jido_instance: jido_instance) do
-      {:ok, {adapter, opts}} ->
-        %{
-          adapter: inspect(adapter),
-          path: storage_path(opts)
-        }
+  defp refresh_setup(socket) do
+    setup_assistant =
+      Setup.build(
+        scope: socket.assigns[:cluster_scope],
+        jido_instance: socket.assigns[:jido_instance],
+        prefix: socket.assigns[:prefix],
+        runtime_key: socket.assigns[:runtime_key],
+        node_param: socket.assigns[:cluster_node_param]
+      )
 
-      {:error, _reason} ->
-        %{
-          adapter: "unavailable",
-          path: "n/a"
-        }
-    end
-  rescue
-    _ ->
-      %{
-        adapter: "unavailable",
-        path: "n/a"
-      }
+    selected_key =
+      socket.assigns[:selected_setup_profile]
+      |> Helpers.normalize_profile_key(setup_assistant.active_profile_key)
+
+    setup_assistant = Map.put(setup_assistant, :active_profile_key, selected_key)
+    setup_profile = Profiles.find_profile(selected_key)
+    statuses = Setup.check_statuses(setup_assistant)
+
+    socket
+    |> maybe_emit_setup_telemetry(setup_assistant)
+    |> assign(:setup_assistant, setup_assistant)
+    |> assign(:setup_profile, setup_profile)
+    |> assign(:setup_check_statuses, statuses)
   end
 
-  defp storage_path(opts) when is_list(opts) do
-    opts
-    |> Keyword.get(:path)
-    |> case do
-      value when is_binary(value) and value != "" -> value
-      _ -> "n/a"
-    end
-  end
+  defp maybe_emit_setup_telemetry(socket, setup_assistant) do
+    previous = socket.assigns[:setup_check_statuses] || %{}
 
-  defp storage_path(_), do: "n/a"
+    :ok =
+      Helpers.emit_step_telemetry(
+        previous,
+        setup_assistant.checks,
+        runtime: socket.assigns[:runtime_key],
+        node: socket.assigns[:cluster_node_param],
+        source: "settings"
+      )
+
+    socket
+  end
 end

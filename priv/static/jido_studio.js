@@ -157,6 +157,7 @@
 
   var HOME_EXAMPLE_STORAGE_KEY = "jido-studio-home-example-hidden";
   var HOME_SETUP_STORAGE_KEY = "jido-studio-home-setup-hidden";
+  var HOME_SETUP_LAST_COMPLETE_KEY = "jido-studio-home-setup-last-complete";
   var HOME_SETUP_COMPLETE_EMITTED = false;
 
   function readHomeExampleHidden() {
@@ -199,6 +200,26 @@
     }
   }
 
+  function readHomeSetupLastComplete() {
+    try {
+      return localStorage.getItem(HOME_SETUP_LAST_COMPLETE_KEY) === "1";
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function writeHomeSetupLastComplete(complete) {
+    try {
+      if (complete) {
+        localStorage.setItem(HOME_SETUP_LAST_COMPLETE_KEY, "1");
+      } else {
+        localStorage.removeItem(HOME_SETUP_LAST_COMPLETE_KEY);
+      }
+    } catch (_error) {
+      // ignore storage failures
+    }
+  }
+
   function syncHomeExampleVisibility() {
     var hidden = readHomeExampleHidden();
 
@@ -213,13 +234,16 @@
 
   function syncHomeSetupVisibility() {
     var hidden = readHomeSetupHidden();
+    var wasComplete = readHomeSetupLastComplete();
 
     document.querySelectorAll("[data-js-home-setup]").forEach(function (root) {
       var complete = root.getAttribute("data-js-home-setup-complete") === "true";
       var grid = root.querySelector("[data-js-home-setup-grid]");
       var card = root.querySelector("[data-js-home-setup-card]");
       var show = root.querySelector("[data-js-home-setup-show]");
+      var regressed = root.querySelector("[data-js-home-setup-regressed]");
       var shouldHide = hidden && complete;
+      var hasRegressed = wasComplete && !complete;
 
       if (!complete && hidden) {
         writeHomeSetupHidden(false);
@@ -233,6 +257,8 @@
 
       if (card) card.classList.toggle("hidden", shouldHide);
       if (show) show.classList.toggle("hidden", !shouldHide);
+      if (regressed) regressed.classList.toggle("hidden", !hasRegressed);
+      writeHomeSetupLastComplete(complete);
 
       if (complete && !HOME_SETUP_COMPLETE_EMITTED) {
         HOME_SETUP_COMPLETE_EMITTED = true;

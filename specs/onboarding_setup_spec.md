@@ -13,6 +13,7 @@ Make setup fast and obvious for both non-technical operators and developers by g
 - Pass/warn/fail with one recommended next action.
 - Copy-ready config snippets by profile.
 - Dismissible but recoverable.
+- "Apply profile snippet" is guidance-only (show/copy), never host file mutation.
 
 ## Setup Steps
 1. Runtime connected
@@ -73,7 +74,8 @@ Make setup fast and obvious for both non-technical operators and developers by g
 - Runtime + durable persistence + realtime + scope controls.
 
 ## State and Persistence
-- Save onboarding progress in local storage and optional server-side user prefs.
+- Save onboarding progress in local storage for this phase.
+- Server-side user prefs are optional and deferred.
 - Steps can be completed non-linearly.
 - Show completion summary:
   - `Core Ready`

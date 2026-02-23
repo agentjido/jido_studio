@@ -3,13 +3,16 @@ defmodule JidoStudio.HomeLive do
   use Phoenix.LiveView
 
   import JidoStudio.Components
+  import JidoStudio.Setup.Components
 
   alias JidoStudio.AgentRegistry
   alias JidoStudio.Cluster.RPC
   alias JidoStudio.Cluster.Scope
-  alias JidoStudio.LiveOps
   alias JidoStudio.Naming
   alias JidoStudio.Observability.Incidents
+  alias JidoStudio.Setup
+  alias JidoStudio.Setup.Helpers
+  alias JidoStudio.Setup.Profiles
   alias JidoStudio.ScopeQuery
   alias JidoStudio.Threads.Storage, as: ThreadsStorage
   alias JidoStudio.Tracing
@@ -33,8 +36,19 @@ defmodule JidoStudio.HomeLive do
       |> assign(:example_running?, false)
       |> assign(:example_provider_name, nil)
       |> assign(:example_keys_missing?, false)
-      |> assign(:setup_assistant, %{checks: [], complete?: false})
-      |> assign(:home_warning, nil)
+      |> assign(
+        :setup_assistant,
+        %{
+          checks: [],
+          core_ready?: false,
+          recommended_improvements: [],
+          active_profile_key: Profiles.default_profile_key(),
+          profiles: Profiles.profiles()
+        }
+      )
+      |> assign(:setup_profile, Profiles.find_profile(Profiles.default_profile_key()))
+      |> assign(:selected_setup_profile, nil)
+      |> assign(:setup_check_statuses, %{})
 
     {:ok, socket}
   end
@@ -47,6 +61,30 @@ defmodule JidoStudio.HomeLive do
   @impl true
   def handle_info(:refresh, socket) do
     {:noreply, refresh_home(socket)}
+  end
+
+  @impl true
+  def handle_event("retest_setup", _params, socket) do
+    {:noreply,
+     socket
+     |> refresh_home()
+     |> put_flash(:info, "Setup checks refreshed.")}
+  end
+
+  @impl true
+  def handle_event("select_setup_profile", %{"value" => profile_key}, socket) do
+    profile =
+      Helpers.select_profile(
+        profile_key,
+        runtime: socket.assigns[:runtime_key],
+        node: socket.assigns[:cluster_node_param],
+        source: "home"
+      )
+
+    {:noreply,
+     socket
+     |> assign(:selected_setup_profile, profile.key)
+     |> assign(:setup_profile, profile)}
   end
 
   @impl true
@@ -64,7 +102,7 @@ defmodule JidoStudio.HomeLive do
 
       <div
         data-js-home-setup
-        data-js-home-setup-complete={to_string(@setup_assistant.complete?)}
+        data-js-home-setup-complete={to_string(@setup_assistant.core_ready?)}
         class="space-y-3"
       >
         <div data-js-home-setup-grid class="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -133,11 +171,11 @@ defmodule JidoStudio.HomeLive do
                 </p>
               </div>
               <div class="flex items-center gap-2">
-                <.badge variant={if(@setup_assistant.complete?, do: :success, else: :warning)}>
-                  {if(@setup_assistant.complete?, do: "Ready", else: "Needs Setup")}
+                <.badge variant={if(@setup_assistant.core_ready?, do: :success, else: :warning)}>
+                  {if(@setup_assistant.core_ready?, do: "Core Ready", else: "Needs Setup")}
                 </.badge>
                 <button
-                  :if={@setup_assistant.complete?}
+                  :if={@setup_assistant.core_ready?}
                   type="button"
                   data-js-home-setup-hide
                   class="inline-flex items-center rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
@@ -147,28 +185,48 @@ defmodule JidoStudio.HomeLive do
               </div>
             </div>
 
-            <div class="mt-3 space-y-2">
-              <div
-                :for={check <- @setup_assistant.checks}
-                class="rounded-md border border-js-border bg-js-bg-elevated px-3 py-2"
-              >
-                <div class="flex items-center justify-between gap-2">
-                  <div class="text-xs text-js-text font-medium">{check.label}</div>
-                  <.badge variant={setup_badge_variant(check.status)}>
-                    {setup_status_label(check.status)}
-                  </.badge>
-                </div>
-                <p class="mt-1 text-xs text-js-text-muted">{check.detail}</p>
-                <.link
-                  :if={check[:action_path]}
-                  navigate={check.action_path}
-                  class="mt-2 inline-flex items-center rounded-md border border-js-border px-2 py-1 text-[11px] text-js-text-muted hover:text-js-text hover:bg-js-bg"
-                >
-                  {check[:action_label] || "Open"}
-                </.link>
-              </div>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <.badge variant={if(@setup_assistant.core_ready?, do: :success, else: :warning)}>
+                {if(@setup_assistant.core_ready?, do: "Core Ready", else: "Core Setup Needed")}
+              </.badge>
+              <.badge variant={:default}>
+                Recommended Improvements {length(@setup_assistant.recommended_improvements)}
+              </.badge>
+              <.badge variant={:info}>
+                Active Profile: {Profiles.find_profile(@setup_assistant.active_profile_key).label}
+              </.badge>
             </div>
+
+            <div
+              :if={@setup_assistant.recommended_improvements != []}
+              class="mt-3 rounded-md border border-js-warning/40 bg-js-warning/10 px-3 py-2"
+            >
+              <p class="text-xs font-medium text-js-warning">Recommended Improvements</p>
+              <p
+                :for={improvement <- @setup_assistant.recommended_improvements}
+                class="mt-1 text-[11px] text-js-warning"
+              >
+                {improvement.label}: {improvement.recommendation}
+              </p>
+            </div>
+
+            <.checks_list checks={@setup_assistant.checks} />
+
+            <.profile_guidance
+              setup_assistant={@setup_assistant}
+              setup_profile={@setup_profile}
+              heading="Setup Profiles"
+            />
           </.card>
+        </div>
+
+        <div
+          data-js-home-setup-regressed
+          class="hidden rounded-lg border border-js-warning/40 bg-js-warning/10 px-4 py-3"
+        >
+          <p class="text-xs text-js-warning">
+            Setup status regressed since you hid the checklist. Review the updated actions below.
+          </p>
         </div>
 
         <div
@@ -178,7 +236,7 @@ defmodule JidoStudio.HomeLive do
           <div class="min-w-0">
             <div class="flex items-center gap-2">
               <h2 class="text-sm font-semibold text-js-text">Setup Assistant</h2>
-              <.badge variant={:success}>Ready</.badge>
+              <.badge variant={:success}>Core Ready</.badge>
             </div>
             <p class="mt-1 text-xs text-js-text-muted truncate">
               Setup checklist is hidden. Re-open it whenever you need to review setup health.
@@ -399,7 +457,7 @@ defmodule JidoStudio.HomeLive do
     scope = socket.assigns.cluster_scope
     jido_instance = socket.assigns[:jido_instance]
     runtime_key = socket.assigns[:runtime_key]
-    storage_info = thread_storage_details(jido_instance)
+    storage_info = Helpers.thread_storage_details(jido_instance)
     thread_persistence? = ThreadsStorage.persistence_enabled?()
 
     agents = AgentRegistry.list_agents(jido_instance: jido_instance, scope: scope)
@@ -477,18 +535,27 @@ defmodule JidoStudio.HomeLive do
       )
 
     setup_assistant =
-      build_setup_assistant(
-        socket,
-        summary,
-        example_agent,
-        example_running?(example_agent),
-        example_keys_missing?,
-        example_launch_path
+      Setup.build(
+        scope: scope,
+        jido_instance: jido_instance,
+        prefix: socket.assigns.prefix,
+        runtime_key: runtime_key,
+        node_param: socket.assigns.cluster_node_param,
+        agents: agents
       )
 
-    warning = if scope != :all and node_count(scope) == 1, do: nil, else: nil
+    selected_profile_key =
+      Helpers.normalize_profile_key(
+        socket.assigns[:selected_setup_profile],
+        setup_assistant.active_profile_key
+      )
+
+    setup_assistant = Map.put(setup_assistant, :active_profile_key, selected_profile_key)
+    setup_profile = Profiles.find_profile(selected_profile_key)
+    setup_statuses = Setup.check_statuses(setup_assistant)
 
     socket
+    |> maybe_emit_setup_telemetry(setup_assistant)
     |> assign(:summary, summary)
     |> assign(:top_agents, top_agents)
     |> assign(:example_agent, example_agent)
@@ -497,10 +564,11 @@ defmodule JidoStudio.HomeLive do
     |> assign(:example_provider_name, provider_display_name(example_provider))
     |> assign(:example_keys_missing?, example_keys_missing?)
     |> assign(:setup_assistant, setup_assistant)
+    |> assign(:setup_profile, setup_profile)
+    |> assign(:setup_check_statuses, setup_statuses)
     |> assign(:attention_items, attention_items)
     |> assign(:recent_activity, recent_activity)
     |> assign(:recent_failures, recent_failures)
-    |> assign(:home_warning, warning)
   end
 
   defp cluster_incidents(scope) do
@@ -771,200 +839,20 @@ defmodule JidoStudio.HomeLive do
 
   defp first_running_instance_id(_), do: nil
 
-  defp build_setup_assistant(
-         socket,
-         summary,
-         example_agent,
-         example_running?,
-         example_keys_missing?,
-         example_launch_path
-       ) do
-    runtime_connected? = is_atom(socket.assigns[:jido_instance])
-    thread_persistence? = ThreadsStorage.persistence_enabled?()
-    thread_mode = ThreadsStorage.thread_storage_mode()
-    storage_info = thread_storage_details(socket.assigns[:jido_instance])
-    live_ops_enabled? = LiveOps.enabled?()
-    live_ops_presence? = LiveOps.presence_available?()
-    chat_key_present? = any_chat_key_present?()
+  defp maybe_emit_setup_telemetry(socket, setup_assistant) do
+    previous = socket.assigns[:setup_check_statuses] || %{}
 
-    runtime_check = %{
-      label: "Runtime Connected",
-      status: if(runtime_connected?, do: :ok, else: :warning),
-      detail:
-        if(runtime_connected?,
-          do: "Connected to #{inspect(socket.assigns[:jido_instance])}.",
-          else:
-            "No Jido runtime configured. Add `config :jido_studio, jido_instance: MyApp.Jido`."
-        ),
-      required?: true
-    }
+    :ok =
+      Helpers.emit_step_telemetry(
+        previous,
+        setup_assistant.checks,
+        runtime: socket.assigns[:runtime_key],
+        node: socket.assigns[:cluster_node_param],
+        source: "home"
+      )
 
-    persistence_check = %{
-      label: "Persistence",
-      status: if(thread_persistence?, do: :ok, else: :warning),
-      detail:
-        if(thread_persistence?,
-          do:
-            "Thread persistence enabled (mode: #{thread_mode}, adapter: #{storage_info.adapter}, path: #{storage_info.path}).",
-          else: "Thread persistence is disabled; workspace state is ephemeral."
-        ),
-      required?: true,
-      action_path:
-        page_path(
-          socket.assigns.prefix,
-          "/settings",
-          socket.assigns.runtime_key,
-          socket.assigns.cluster_node_param
-        ),
-      action_label: "Open Settings"
-    }
-
-    realtime_check = %{
-      label: "Realtime Updates",
-      status:
-        cond do
-          live_ops_enabled? and live_ops_presence? -> :ok
-          live_ops_enabled? -> :info
-          true -> :warning
-        end,
-      detail:
-        cond do
-          live_ops_enabled? and live_ops_presence? ->
-            "Presence is available. Updates are event-driven."
-
-          live_ops_enabled? ->
-            "Presence is unavailable. Polling fallback is active."
-
-          true ->
-            "Live Ops is disabled; live updates are limited."
-        end,
-      required?: true,
-      action_path:
-        page_path(
-          socket.assigns.prefix,
-          "/settings",
-          socket.assigns.runtime_key,
-          socket.assigns.cluster_node_param
-        ),
-      action_label: "Open Settings"
-    }
-
-    chat_check = %{
-      label: "Chat Provider Key (Optional)",
-      status: if(chat_key_present?, do: :ok, else: :info),
-      detail:
-        if(chat_key_present?,
-          do: "An LLM provider key is configured.",
-          else: "No LLM key detected; non-chat Interact workflows still work."
-        ),
-      required?: false
-    }
-
-    smoke_status =
-      cond do
-        (summary[:running_instances] || 0) > 0 -> :ok
-        example_running? -> :ok
-        example_agent -> :info
-        true -> :warning
-      end
-
-    smoke_check = %{
-      label: "Smoke Check",
-      status: smoke_status,
-      detail:
-        cond do
-          (summary[:running_instances] || 0) > 0 ->
-            "A running instance is available for interaction."
-
-          example_running? ->
-            "Calculator example is running and ready."
-
-          example_agent ->
-            if(example_keys_missing?,
-              do: "Calculator example is discoverable. Add an LLM key for chat, or use Interact.",
-              else: "Calculator example is discoverable. Launch it to validate end-to-end flow."
-            )
-
-          true ->
-            "No demo agent detected in this scope."
-        end,
-      required?: true,
-      action_path:
-        example_launch_path ||
-          page_path(
-            socket.assigns.prefix,
-            "/agents",
-            socket.assigns.runtime_key,
-            socket.assigns.cluster_node_param
-          ),
-      action_label: "Run Example"
-    }
-
-    checks = [runtime_check, persistence_check, realtime_check, chat_check, smoke_check]
-
-    complete? =
-      Enum.all?(checks, fn check ->
-        if check[:required?] do
-          check[:status] in [:ok, :info]
-        else
-          true
-        end
-      end)
-
-    %{checks: checks, complete?: complete?}
+    socket
   end
-
-  defp any_chat_key_present? do
-    env_present?([
-      "ANTHROPIC_API_KEY",
-      "CLAUDE_API_KEY",
-      "OPENAI_API_KEY",
-      "GROQ_API_KEY"
-    ])
-  end
-
-  defp setup_badge_variant(:ok), do: :success
-  defp setup_badge_variant(:info), do: :default
-  defp setup_badge_variant(:warning), do: :warning
-  defp setup_badge_variant(_), do: :default
-
-  defp setup_status_label(:ok), do: "Ready"
-  defp setup_status_label(:info), do: "Optional"
-  defp setup_status_label(:warning), do: "Action"
-  defp setup_status_label(_), do: "Info"
-
-  defp thread_storage_details(jido_instance) do
-    case ThreadsStorage.resolve_storage(jido_instance: jido_instance) do
-      {:ok, {adapter, opts}} ->
-        %{
-          adapter: inspect(adapter),
-          path: storage_path(opts)
-        }
-
-      {:error, _reason} ->
-        %{
-          adapter: "unavailable",
-          path: "n/a"
-        }
-    end
-  rescue
-    _ ->
-      %{
-        adapter: "unavailable",
-        path: "n/a"
-      }
-  end
-
-  defp storage_path(opts) when is_list(opts) do
-    opts
-    |> Keyword.get(:path)
-    |> case do
-      value when is_binary(value) and value != "" -> value
-      _ -> "n/a"
-    end
-  end
-
-  defp storage_path(_), do: "n/a"
 
   defp runtime_scope_label(runtime_key, _jido_instance) when is_binary(runtime_key),
     do: runtime_key
