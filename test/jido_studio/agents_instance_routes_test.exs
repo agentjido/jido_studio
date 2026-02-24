@@ -18,7 +18,7 @@ defmodule JidoStudio.AgentsInstanceRoutesTest do
     :ok
   end
 
-  test "base instance route remains compatible and defaults to play", %{conn: conn} do
+  test "base instance route remains compatible and defaults to basic view", %{conn: conn} do
     instance_id = "route-base-#{System.unique_integer([:positive])}"
 
     assert {:ok, _pid} =
@@ -28,9 +28,9 @@ defmodule JidoStudio.AgentsInstanceRoutesTest do
 
     {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}?node=all")
 
-    assert has_element?(view, ".js-instance-menu-section.is-active", "Play")
-    assert has_element?(view, "a[href*='/observe'][href*='node=all']")
-    assert has_element?(view, "a[href*='/configure'][href*='node=all']")
+    assert render(view) =~ "Basic View"
+    assert render(view) =~ "2. Set Inputs and Run"
+    assert has_element?(view, "a[href*='view=advanced']", "Advanced View")
   end
 
   test "explicit observe route opens requested observe panel", %{conn: conn} do

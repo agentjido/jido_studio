@@ -75,7 +75,7 @@ defmodule JidoStudio.Live.AgentsLive.RunnerState do
 
   def payload_template_from_action(%{required_fields: fields}) when is_list(fields) do
     fields
-    |> Enum.reduce(%{}, fn field, acc -> Map.put(acc, field, "<value>") end)
+    |> Enum.reduce(%{}, fn field, acc -> Map.put(acc, field, "") end)
     |> Jason.encode!()
   rescue
     _ -> "{}"

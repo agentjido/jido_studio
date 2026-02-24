@@ -164,7 +164,9 @@ defmodule JidoStudio.AgentsLiveTest do
 
     {:ok, _view, html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
 
-    assert html =~ "Signal and action introspection with guarded runtime dispatch."
+    assert html =~ "Basic View"
+    assert html =~ "2. Set Inputs and Run"
+    assert html =~ "Current Agent State"
   end
 
   test "show route disconnected render uses workbench shell layout", %{conn: conn} do
@@ -191,7 +193,7 @@ defmodule JidoStudio.AgentsLiveTest do
 
     slug = slug_for_module(Jido.AI.Examples.CalculatorAgent)
 
-    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}?view=advanced")
 
     assert has_element?(view, "a", "Play")
     assert has_element?(view, "a", "Observe")
@@ -251,7 +253,7 @@ defmodule JidoStudio.AgentsLiveTest do
 
     slug = slug_for_module(Jido.AI.Examples.CalculatorAgent)
 
-    {:ok, view, html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+    {:ok, view, html} = live(conn, "/studio/agents/#{slug}/#{instance_id}?view=advanced")
 
     assert html =~ "Signal and action introspection with guarded runtime dispatch."
     assert has_element?(view, "span[title='Chat unavailable for this instance']", "Chat")
@@ -279,7 +281,7 @@ defmodule JidoStudio.AgentsLiveTest do
 
     slug = slug_for_module(NonChatAgent)
 
-    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}?view=advanced")
 
     assert has_element?(view, "button[phx-click='run_selected_interaction'][disabled]")
 
@@ -332,7 +334,7 @@ defmodule JidoStudio.AgentsLiveTest do
 
     slug = slug_for_module(NonChatAgent)
 
-    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}?view=advanced")
 
     render_click(view, "arm_runner_execute", %{})
 
@@ -367,7 +369,7 @@ defmodule JidoStudio.AgentsLiveTest do
 
     slug = slug_for_module(NonChatAgent)
 
-    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}?view=advanced")
 
     render_click(view, "arm_runner_execute", %{})
     assert render(view) =~ "Armed"
@@ -383,6 +385,96 @@ defmodule JidoStudio.AgentsLiveTest do
 
     assert render(view) =~ "Arm Execute"
     assert has_element?(view, "button[phx-click='run_selected_interaction'][disabled]")
+  end
+
+  test "basic view renders starter operations and prefill emits telemetry", %{conn: conn} do
+    event = [:jido_studio, :onboarding, :starter_payload_prefilled]
+    handler_id = "agents-starter-prefill-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        &__MODULE__.handle_telemetry_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    instance_id = "beginner-prefill-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _pid} = Jido.start_agent(TestJido, JidoStudio.BeginnerAgent, id: instance_id)
+
+    slug = slug_for_module(JidoStudio.BeginnerAgent)
+
+    {:ok, view, html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+
+    assert html =~ "1. Pick a Starter Operation"
+    assert html =~ "Ping"
+
+    render_click(view, "prefill_starter_operation", %{"id" => "starter:beginner.ping"})
+
+    updated = render(view)
+    assert updated =~ "Ping (check instance health)"
+    assert updated =~ "beginner.ping"
+    assert updated =~ ~s(value="hello")
+
+    assert_receive {:telemetry_event, ^event, %{count: 1}, metadata}
+    assert metadata.source == "agents_basic_starter"
+    assert metadata.starter_operation == "starter:beginner.ping"
+  end
+
+  test "basic view shows guided next actions after successful run", %{conn: conn} do
+    instance_id = "beginner-delta-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _pid} = Jido.start_agent(TestJido, JidoStudio.BeginnerAgent, id: instance_id)
+
+    slug = slug_for_module(JidoStudio.BeginnerAgent)
+
+    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+
+    render_click(view, "prefill_starter_operation", %{"id" => "starter:beginner.add"})
+    render_click(view, "arm_runner_execute", %{})
+    render_click(view, "run_selected_interaction", %{})
+
+    updated = render(view)
+    assert updated =~ "Run Succeeded"
+    assert updated =~ "No state fields changed in this run."
+    assert updated =~ "Open Events"
+    assert updated =~ "Open Thread Context"
+  end
+
+  test "open_next_action emits basic next-action telemetry", %{conn: conn} do
+    event = [:jido_studio, :interaction, :next_action_opened]
+    handler_id = "agents-next-action-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        &__MODULE__.handle_telemetry_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    instance_id = "beginner-next-action-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _pid} = Jido.start_agent(TestJido, JidoStudio.BeginnerAgent, id: instance_id)
+
+    slug = slug_for_module(JidoStudio.BeginnerAgent)
+
+    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+
+    render_click(view, "open_next_action", %{
+      "path" => "/studio/agents",
+      "next_action" => "instance_events",
+      "trace_id" => ""
+    })
+
+    assert_receive {:telemetry_event, ^event, %{count: 1}, metadata}
+    assert metadata.source == "agents_basic_result"
+    assert metadata.next_action == "instance_events"
   end
 
   test "clear workspace removes persisted chat state for an instance", %{conn: conn} do
@@ -434,7 +526,7 @@ defmodule JidoStudio.AgentsLiveTest do
 
     assert saved_payload.source == :persisted
 
-    {:ok, view, html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+    {:ok, view, html} = live(conn, "/studio/agents/#{slug}/#{instance_id}?view=advanced")
     assert html =~ "Saved Thread"
 
     render_click(view, "clear_workspace", %{})
@@ -466,7 +558,7 @@ defmodule JidoStudio.AgentsLiveTest do
 
     slug = slug_for_module(Jido.AI.Examples.WeatherAgent)
 
-    {:ok, _view, html} = live(conn, "/studio/agents/#{slug}/#{instance_id}")
+    {:ok, _view, html} = live(conn, "/studio/agents/#{slug}/#{instance_id}?view=advanced")
 
     assert html =~ "How can I help you today?"
   end

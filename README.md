@@ -210,6 +210,13 @@ Starter details:
 - purpose: first-run onboarding without provider keys or LLM dependencies
 - startup behavior: explicit only; opening starter links can pre-open Start modal (`start=1`), but users still confirm `Start Instance` manually
 
+Instance view model:
+
+- `Basic View` is the default on `/agents/:slug/:instance_id` for first-run interaction
+- `Advanced View` preserves the full Play/Observe/Configure workbench
+- mode can be deep-linked with `view=basic|advanced`
+- legacy advanced deep links (`panel`, `tab`, `/observe`, `/configure`) remain compatible
+
 Set `enabled: false` to hide the beginner agent from discovery lists when it is not running.
 If a beginner instance is already running, Studio keeps it visible so operators can inspect or stop it safely.
 
@@ -227,9 +234,12 @@ Studio emits additive telemetry events under `[:jido_studio, ...]` for Phase 5 h
 - `[:interaction, :completed]`
 - `[:onboarding, :first_interaction_succeeded]`
 - `[:onboarding, :starter_opened]`
+- `[:onboarding, :starter_payload_prefilled]`
 - `[:onboarding, :starter_start_modal_opened]`
 - `[:triage, :warning_opened]`
 - `[:triage, :root_cause_opened]`
+- `[:interaction, :state_delta_viewed]`
+- `[:interaction, :next_action_opened]`
 - `[:incidents, :next_step_links_evaluated]`
 - `[:tour, :started]`
 - `[:tour, :step_viewed]`

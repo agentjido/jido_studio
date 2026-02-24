@@ -25,6 +25,12 @@ Top-level page purpose, required sections, and minimum interaction contracts.
 - `specs/agents_instance_manager_spec.md`
 Instance-level Play/Observe/Configure behavior and panel contracts.
 
+- `specs/agent_runtime_mental_model.md`
+Beginner-facing runtime model (discovered modules vs running instances, memory/actions/traces).
+
+- `specs/beginner_agent_simple_loop_spec.md`
+Beginner-first interaction contract for simple deterministic agents (memory/actions/traces loop).
+
 - `specs/diagnostics_timeline_spec.md`
 Advanced OTEL-style timeline (waterfall) design and performance guardrails.
 

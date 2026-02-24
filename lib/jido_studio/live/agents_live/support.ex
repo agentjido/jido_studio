@@ -95,7 +95,7 @@ defmodule JidoStudio.Live.AgentsLive.Support do
 
   def requested_workbench_tab(params) when is_map(params) do
     panel = Map.get(params, "panel")
-    legacy_view = Map.get(params, "view")
+    legacy_view = legacy_workbench_view(params)
 
     if is_nil(panel) and is_nil(legacy_view) do
       nil
@@ -105,6 +105,19 @@ defmodule JidoStudio.Live.AgentsLive.Support do
   end
 
   def requested_workbench_tab(_), do: nil
+
+  defp legacy_workbench_view(params) when is_map(params) do
+    case Map.get(params, "view") do
+      nil ->
+        nil
+
+      view when is_binary(view) ->
+        if parse_instance_view_mode_param(view) in [:basic, :advanced], do: nil, else: view
+
+      other ->
+        other
+    end
+  end
 
   def resolve_default_workbench_tab(requested_tab, interaction_model, chat_enabled?)
       when requested_tab in [
@@ -479,8 +492,23 @@ defmodule JidoStudio.Live.AgentsLive.Support do
   defdelegate parse_workbench_tab(panel, legacy_view \\ nil), to: Contracts
   defdelegate panel_query_value(panel), to: Contracts
   defdelegate tab_query_value(tab), to: Contracts
-  defdelegate workbench_section_path(prefix, agent, instance_id, section), to: Routes
-  defdelegate workbench_path(prefix, agent, instance_id, panel, tab, section \\ nil), to: Routes
+  defdelegate parse_instance_view_mode(mode), to: Contracts
+  defdelegate parse_instance_view_mode_param(mode), to: Contracts
+  defdelegate view_mode_query_value(mode), to: Contracts
+
+  defdelegate workbench_section_path(prefix, agent, instance_id, section, view_mode \\ nil),
+    to: Routes
+
+  defdelegate workbench_path(
+                prefix,
+                agent,
+                instance_id,
+                panel,
+                tab,
+                section \\ nil,
+                view_mode \\ nil
+              ),
+              to: Routes
 
   def thread_context_sections(
         sections_by_tab,

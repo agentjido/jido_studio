@@ -58,7 +58,27 @@ defmodule JidoStudio.Live.AgentsLive.Contracts do
                                end)
                              end)
 
+  @instance_view_modes [:basic, :advanced]
+
   def workbench_sections, do: @workbench_sections
+
+  def parse_instance_view_mode(mode)
+
+  def parse_instance_view_mode(mode) when mode in @instance_view_modes, do: mode
+  def parse_instance_view_mode("basic"), do: :basic
+  def parse_instance_view_mode("advanced"), do: :advanced
+  def parse_instance_view_mode(_), do: :basic
+
+  def parse_instance_view_mode_param(mode)
+
+  def parse_instance_view_mode_param(mode) when mode in @instance_view_modes, do: mode
+  def parse_instance_view_mode_param("basic"), do: :basic
+  def parse_instance_view_mode_param("advanced"), do: :advanced
+  def parse_instance_view_mode_param(_), do: nil
+
+  def view_mode_query_value(:basic), do: "basic"
+  def view_mode_query_value(:advanced), do: "advanced"
+  def view_mode_query_value(_), do: "basic"
 
   def parse_instance_section(section)
 

@@ -157,6 +157,33 @@ Provide an implementation sequence that delivers a coherent operator-first produ
 - starter picker fallback-order tests
 - Agents/Guide/Home starter UX + deep-link tests
 
+### Phase 6.2: Beginner Interaction Loop Hardening
+#### Deliverables
+- beginner-first `Play -> Interact` loop with starter operations and payload prefill
+- schema-first payload form mode with raw JSON fallback
+- post-run state-delta summary and explicit memory-change explanation
+- one-click next actions to events/thread context/traces/diagnostics
+
+#### Gates
+- beginner loop completion test under 2-minute scripted path
+- starter prefill + guarded execution tests
+- state-delta + trace-link visibility tests
+- additive telemetry coverage for prefill/delta/next-action events
+
+### Phase 6.3: Basic/Advanced Instance View Split
+#### Deliverables
+- additive `view=basic|advanced` query contract for instance routes
+- default Basic View for instance pages with explicit Advanced toggle
+- full legacy 3-rail workbench preserved as Advanced View
+- legacy advanced intent compatibility (`panel`, `tab`, `/observe`, `/configure`)
+- docs update for discovered modules vs running instances and beginner runtime model
+
+#### Gates
+- default-basic + explicit-advanced + legacy-intent route tests
+- advanced parity tests for summary rail and section/panel behavior
+- basic loop integration tests for starter prefill and guided next actions
+- telemetry coverage for starter prefill, state-delta viewed, next-action opened
+
 ## Regression Guardrails
 - Existing `agents_live`, `observability`, `delegation`, `threads`, and cluster tests remain green.
 - New scope/onboarding/timeline tests must be additive and non-breaking.

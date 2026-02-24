@@ -289,10 +289,10 @@ defmodule JidoStudio.AgentRegistry do
     running_instances =
       merge_running_instances(left.running_instances || [], right.running_instances || [])
 
-      left
-      |> merge_cluster_agent_metadata(right)
-      |> Map.put(:running_instances, running_instances)
-      |> Map.put(:status, if(running_instances == [], do: :available, else: :running))
+    left
+    |> merge_cluster_agent_metadata(right)
+    |> Map.put(:running_instances, running_instances)
+    |> Map.put(:status, if(running_instances == [], do: :available, else: :running))
   end
 
   defp merge_cluster_agent_metadata(left, right) do

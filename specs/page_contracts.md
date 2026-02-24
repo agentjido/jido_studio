@@ -43,6 +43,8 @@ Required sections:
 - Discovered modules/running/active counts
 - inventory explainer clarifying module vs instance model
 - Fast path into instance manager
+- Basic View default for first interaction loop
+- Advanced View toggle for full workbench controls
 - starter agent card with “why this starter” reason
 - Internal vs product grouping where applicable
 - Source App metadata for discovered module ownership

@@ -42,7 +42,8 @@ defmodule JidoStudio.Onboarding.StarterAgent do
     end
   end
 
-  def pick(_), do: {nil, "No product agents are available in the selected runtime and node scope."}
+  def pick(_),
+    do: {nil, "No product agents are available in the selected runtime and node scope."}
 
   defp beginner_agent?(%{} = agent) do
     module = Map.get(agent, :module)

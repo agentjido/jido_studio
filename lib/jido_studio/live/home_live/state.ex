@@ -211,5 +211,4 @@ defmodule JidoStudio.Live.HomeLive.State do
   defp page_path(prefix, suffix, runtime_key, node_param) do
     ScopeQuery.with_scope_query(prefix <> suffix, runtime_key, node_param)
   end
-
 end

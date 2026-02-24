@@ -26,7 +26,8 @@ defmodule JidoStudio.AgentsInstanceLayoutTest do
 
     slug = slug_for_module(Jido.AI.Examples.CalculatorAgent)
 
-    {:ok, view, _html} = live(conn, "/studio/agents/#{slug}/#{instance_id}?node=all")
+    {:ok, view, _html} =
+      live(conn, "/studio/agents/#{slug}/#{instance_id}?node=all&view=advanced")
 
     assert has_element?(view, ".js-agent-summary-pane")
     assert render(view) =~ "lg:grid-cols-[190px_minmax(0,1fr)_280px]"

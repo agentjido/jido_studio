@@ -44,6 +44,11 @@ defmodule JidoStudio.ProductMetrics do
     emit(socket, [:onboarding, :starter_opened], opts)
   end
 
+  @spec onboarding_starter_payload_prefilled(socket_like(), keyword()) :: :ok
+  def onboarding_starter_payload_prefilled(socket, opts \\ []) do
+    emit(socket, [:onboarding, :starter_payload_prefilled], opts)
+  end
+
   @spec onboarding_starter_start_modal_opened(socket_like(), keyword()) :: :ok
   def onboarding_starter_start_modal_opened(socket, opts \\ []) do
     emit(socket, [:onboarding, :starter_start_modal_opened], opts)
@@ -52,6 +57,16 @@ defmodule JidoStudio.ProductMetrics do
   @spec triage_root_cause_opened(socket_like(), keyword()) :: :ok
   def triage_root_cause_opened(socket, opts \\ []) do
     emit(socket, [:triage, :root_cause_opened], opts)
+  end
+
+  @spec interaction_state_delta_viewed(socket_like(), keyword()) :: :ok
+  def interaction_state_delta_viewed(socket, opts \\ []) do
+    emit(socket, [:interaction, :state_delta_viewed], opts)
+  end
+
+  @spec interaction_next_action_opened(socket_like(), keyword()) :: :ok
+  def interaction_next_action_opened(socket, opts \\ []) do
+    emit(socket, [:interaction, :next_action_opened], opts)
   end
 
   @spec tour_started(socket_like(), keyword()) :: :ok

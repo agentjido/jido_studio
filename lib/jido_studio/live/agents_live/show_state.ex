@@ -6,6 +6,7 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
   alias JidoStudio.AgentInteractions
   alias JidoStudio.AgentRegistry
   alias JidoStudio.Agents.Introspection
+  alias JidoStudio.Agents.StarterOperations
   alias JidoStudio.Chat.Runtime, as: ChatRuntime
   alias JidoStudio.Cluster.Scope
   alias JidoStudio.Live.AgentsLive.Routes
@@ -19,9 +20,28 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
     jido_instance = socket.assigns[:jido_instance]
     requested_instance_id = Map.get(params, "instance_id")
     start_modal_requested? = start_modal_requested?(params)
+    requested_view_mode = Support.parse_instance_view_mode_param(Map.get(params, "view"))
     requested_workbench_tab = Support.requested_workbench_tab(params)
     explicit_workbench_tab? = not is_nil(requested_workbench_tab)
-    requested_section = Support.parse_instance_section(Map.get(params, "section"))
+    requested_section_param = Map.get(params, "section")
+    requested_section = Support.parse_instance_section(requested_section_param)
+
+    instance_view_mode =
+      case requested_view_mode do
+        mode when mode in [:basic, :advanced] ->
+          mode
+
+        _ ->
+          if legacy_advanced_view_intent?(
+               params,
+               requested_section_param,
+               requested_workbench_tab
+             ) do
+            :advanced
+          else
+            :basic
+          end
+      end
 
     scope_filters =
       Support.merge_scope_filters(socket.assigns[:scope_filters], Map.get(params, "scope"))
@@ -87,7 +107,8 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
             agent,
             running_instances,
             instance_runtime_map,
-            socket.assigns.prefix
+            socket.assigns.prefix,
+            instance_view_mode
           )
 
         start_form_schema = presenter_start_form_schema(presenter, agent)
@@ -115,6 +136,8 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
           else
             Support.empty_interaction_model()
           end
+
+        starter_operations = StarterOperations.list(agent, interaction_model)
 
         view_model =
           presenter_view_model(
@@ -179,6 +202,7 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
         |> assign(:active_instance_pid, active_instance_pid)
         |> assign(:runtime_status, runtime_status)
         |> assign(:scope_filters, scope_filters)
+        |> assign(:instance_view_mode, instance_view_mode)
         |> assign(
           :start_modal_open?,
           start_modal_requested? and socket.assigns[:jido_configured?] == true
@@ -198,13 +222,17 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
         |> assign(:chat_enabled?, chat_enabled)
         |> assign(:chat_unavailable_reason, chat_unavailable_reason)
         |> assign(:interaction_model, interaction_model)
+        |> assign(:starter_operations, starter_operations)
         |> assign(:workbench_tab, workbench_tab)
         |> assign(:instance_section, instance_section)
         |> assign(
           :runner_form,
-          Support.sync_runner_form(socket.assigns[:runner_form], interaction_model)
+          socket.assigns[:runner_form]
+          |> Support.sync_runner_form(interaction_model)
         )
+        |> assign(:runner_field_errors, %{})
         |> assign(:runner_result, nil)
+        |> assign(:last_run_summary, nil)
         |> assign(:runner_history, Support.current_runner_history(socket, active_instance_id))
         |> assign(:detail_tabs, tabs)
         |> assign(:detail_tab, parse_detail_tab(Map.get(params, "tab"), tabs))
@@ -321,14 +349,24 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
 
   def agent_module_path(prefix, agent), do: scoped_path("#{prefix}/agents/#{agent.slug}")
 
-  def agent_instance_path(prefix, agent, instance_id, section \\ :play) do
-    Routes.workbench_section_path(prefix, agent, instance_id, section)
+  def agent_instance_path(prefix, agent, instance_id, section \\ :play, view_mode \\ nil) do
+    Routes.workbench_section_path(prefix, agent, instance_id, section, view_mode)
   end
 
-  def instance_links(prefix, agent, running_instances, active_instance_id, section) do
+  def instance_links(
+        prefix,
+        agent,
+        running_instances,
+        active_instance_id,
+        section,
+        view_mode \\ nil
+      ) do
     links =
       Enum.map(running_instances, fn instance ->
-        %{id: instance.id, path: agent_instance_path(prefix, agent, instance.id, section)}
+        %{
+          id: instance.id,
+          path: agent_instance_path(prefix, agent, instance.id, section, view_mode)
+        }
       end)
 
     if is_binary(active_instance_id) and not Enum.any?(links, &(&1.id == active_instance_id)) do
@@ -336,7 +374,7 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
         [
           %{
             id: active_instance_id,
-            path: agent_instance_path(prefix, agent, active_instance_id, section)
+            path: agent_instance_path(prefix, agent, active_instance_id, section, view_mode)
           }
         ]
     else
@@ -472,7 +510,14 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
   def resolve_jido_instance(nil), do: Application.get_env(:jido_studio, :jido_instance)
   def resolve_jido_instance(value), do: value
 
-  def build_instance_cards(presenter, agent, running_instances, instance_runtime_map, prefix) do
+  def build_instance_cards(
+        presenter,
+        agent,
+        running_instances,
+        instance_runtime_map,
+        prefix,
+        view_mode \\ nil
+      ) do
     Enum.map(running_instances, fn instance ->
       runtime = Map.get(instance_runtime_map, instance.id, %{})
       status = Map.get(runtime, :status)
@@ -491,12 +536,31 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
 
       %{
         id: instance.id,
-        path: agent_instance_path(prefix, agent, instance.id),
+        path: agent_instance_path(prefix, agent, instance.id, :play, view_mode),
         traces_path: traces_path(prefix, agent, instance.id, instance.id),
         summary: summary
       }
     end)
   end
+
+  def legacy_advanced_view_intent?(params, requested_section, requested_workbench_tab)
+      when is_map(params) do
+    section_advanced? =
+      requested_section
+      |> Support.parse_instance_section()
+      |> case do
+        :observe -> true
+        :configure -> true
+        _ -> false
+      end
+
+    section_advanced? or
+      not is_nil(requested_workbench_tab) or
+      is_binary(Map.get(params, "panel")) or
+      is_binary(Map.get(params, "tab"))
+  end
+
+  def legacy_advanced_view_intent?(_, _, _), do: false
 
   def instance_runtime_details(nil), do: %{status: nil, debug_enabled: false}
 

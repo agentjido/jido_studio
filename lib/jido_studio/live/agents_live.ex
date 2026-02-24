@@ -7,8 +7,10 @@ defmodule JidoStudio.AgentsLive do
   alias JidoStudio.AgentInteractions
   alias JidoStudio.AgentRegistry
   alias JidoStudio.Agents.FilterForm, as: AgentsFilterForm
+  alias JidoStudio.Agents.PayloadForm
   alias JidoStudio.Agents.Runner
   alias JidoStudio.Agents.RunnerForm
+  alias JidoStudio.Agents.RunSummary
   alias JidoStudio.Chat.Session, as: ChatSession
   alias JidoStudio.GuidedTour
   alias JidoStudio.LiveOps
@@ -85,6 +87,7 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:persist_workspace_ref, nil)
       |> assign(:workbench_tab, :chat)
       |> assign(:instance_section, :play)
+      |> assign(:instance_view_mode, :basic)
       |> assign(:detail_tabs, [%{id: :overview, label: "Overview"}])
       |> assign(:detail_tab, :overview)
       |> assign(:sections_by_tab, %{})
@@ -117,8 +120,12 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:subagent_detail_tab, "config")
       |> assign(:expanded_event_ids, MapSet.new())
       |> assign(:interaction_model, empty_interaction_model())
+      |> assign(:starter_operations, [])
       |> assign(:runner_form, RunnerForm.new())
+      |> assign(:runner_field_errors, %{})
       |> assign(:runner_result, nil)
+      |> assign(:last_run_summary, nil)
+      |> assign(:show_state_delta?, false)
       |> assign(:runner_history, [])
       |> assign(:interaction_history, %{})
       |> assign(:show_advanced_signals?, true)
@@ -321,7 +328,9 @@ defmodule JidoStudio.AgentsLive do
              socket.assigns.agent,
              socket.assigns.active_instance_id,
              :instance,
-             detail_tab
+             detail_tab,
+             nil,
+             socket.assigns[:instance_view_mode]
            )
        )}
     else
@@ -356,7 +365,8 @@ defmodule JidoStudio.AgentsLive do
              socket.assigns.active_instance_id,
              workbench_tab,
              socket.assigns.detail_tab,
-             socket.assigns[:instance_section]
+             socket.assigns[:instance_section],
+             socket.assigns[:instance_view_mode]
            )
        )}
     else
@@ -371,7 +381,13 @@ defmodule JidoStudio.AgentsLive do
       |> RunnerForm.select_signal(key)
       |> maybe_apply_payload_template(socket.assigns.interaction_model, {:signal, key})
 
-    {:noreply, socket |> assign(:runner_form, form) |> assign(:runner_result, nil)}
+    {:noreply,
+     socket
+     |> assign(:runner_form, form)
+     |> assign(:runner_result, nil)
+     |> assign(:runner_field_errors, %{})
+     |> assign(:last_run_summary, nil)
+     |> assign(:show_state_delta?, false)}
   end
 
   @impl true
@@ -381,12 +397,115 @@ defmodule JidoStudio.AgentsLive do
       |> RunnerForm.select_action(key)
       |> maybe_apply_payload_template(socket.assigns.interaction_model, {:action, key})
 
-    {:noreply, socket |> assign(:runner_form, form) |> assign(:runner_result, nil)}
+    {:noreply,
+     socket
+     |> assign(:runner_form, form)
+     |> assign(:runner_result, nil)
+     |> assign(:runner_field_errors, %{})
+     |> assign(:last_run_summary, nil)
+     |> assign(:show_state_delta?, false)}
+  end
+
+  @impl true
+  def handle_event("prefill_starter_operation", %{"id" => id}, socket) when is_binary(id) do
+    operation =
+      socket.assigns[:starter_operations]
+      |> List.wrap()
+      |> Enum.find(&(&1[:id] == id))
+
+    case operation do
+      %{selection_kind: :signal, selection_key: key, payload_json: payload_json} ->
+        selected_form =
+          socket.assigns.runner_form
+          |> RunnerForm.select_signal(key)
+
+        form =
+          selected_form
+          |> then(
+            &RunnerForm.parse(%{"payload_json" => payload_json, "schema_mode" => "fields"}, &1)
+          )
+          |> RunnerForm.disarm()
+
+        :ok =
+          ProductMetrics.onboarding_starter_payload_prefilled(socket,
+            source: "agents_basic_starter",
+            mode: "basic_view",
+            agent_slug:
+              normalize_optional_string(socket.assigns[:agent] && socket.assigns.agent.slug),
+            starter_operation: id
+          )
+
+        {:noreply,
+         socket
+         |> assign(:runner_form, form)
+         |> assign(:runner_result, nil)
+         |> assign(:runner_field_errors, %{})
+         |> assign(:last_run_summary, nil)
+         |> assign(:show_state_delta?, false)}
+
+      %{selection_kind: :action, selection_key: key, payload_json: payload_json} ->
+        selected_form =
+          socket.assigns.runner_form
+          |> RunnerForm.select_action(key)
+
+        form =
+          selected_form
+          |> then(
+            &RunnerForm.parse(%{"payload_json" => payload_json, "schema_mode" => "fields"}, &1)
+          )
+          |> RunnerForm.disarm()
+
+        :ok =
+          ProductMetrics.onboarding_starter_payload_prefilled(socket,
+            source: "agents_basic_starter",
+            mode: "basic_view",
+            agent_slug:
+              normalize_optional_string(socket.assigns[:agent] && socket.assigns.agent.slug),
+            starter_operation: id
+          )
+
+        {:noreply,
+         socket
+         |> assign(:runner_form, form)
+         |> assign(:runner_result, nil)
+         |> assign(:runner_field_errors, %{})
+         |> assign(:last_run_summary, nil)
+         |> assign(:show_state_delta?, false)}
+
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   @impl true
   def handle_event("update_runner_payload", %{"runner" => params}, socket) do
     form = RunnerForm.parse(params, socket.assigns.runner_form)
+    {:noreply, socket |> assign(:runner_form, form) |> assign(:runner_field_errors, %{})}
+  end
+
+  @impl true
+  def handle_event("update_runner_fields", %{"fields" => field_params}, socket)
+      when is_map(field_params) do
+    selection = RunnerForm.selected_target(socket.assigns.runner_form)
+
+    {:ok, payload_json, errors} =
+      PayloadForm.apply_fields(socket.assigns.interaction_model, selection, field_params)
+
+    form =
+      RunnerForm.parse(
+        %{"payload_json" => payload_json, "schema_mode" => "fields"},
+        socket.assigns.runner_form
+      )
+
+    {:noreply,
+     socket
+     |> assign(:runner_form, form)
+     |> assign(:runner_field_errors, errors)}
+  end
+
+  @impl true
+  def handle_event("set_schema_mode", %{"mode" => mode}, socket) do
+    form = RunnerForm.parse(%{"schema_mode" => mode}, socket.assigns.runner_form)
     {:noreply, assign(socket, :runner_form, form)}
   end
 
@@ -421,6 +540,8 @@ defmodule JidoStudio.AgentsLive do
      |> assign(:runner_history, [])
      |> assign(:interaction_history, interaction_history)
      |> assign(:runner_result, nil)
+     |> assign(:last_run_summary, nil)
+     |> assign(:show_state_delta?, false)
      |> schedule_workspace_persist(:interaction_history, 100)}
   end
 
@@ -463,78 +584,152 @@ defmodule JidoStudio.AgentsLive do
 
   @impl true
   def handle_event("run_selected_interaction", _params, socket) do
-    with true <- is_pid(socket.assigns[:active_instance_pid]),
-         true <- RunnerForm.can_execute?(socket.assigns.runner_form),
-         {:ok, payload} <- decode_runner_payload(socket.assigns.runner_form.payload_json),
-         {:ok, dispatch_ref} <- selected_dispatch_ref(socket) do
-      :ok =
-        ProductMetrics.interaction_started(socket,
-          source: "agents_interact",
-          mode: "interact",
-          dispatch_mode: socket.assigns.runner_form.dispatch_mode
-        )
+    if map_size(socket.assigns[:runner_field_errors] || %{}) > 0 do
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         "Resolve payload field errors before running this interaction."
+       )}
+    else
+      with true <- is_pid(socket.assigns[:active_instance_pid]),
+           true <- RunnerForm.can_execute?(socket.assigns.runner_form),
+           {:ok, payload} <- decode_runner_payload(socket.assigns.runner_form.payload_json),
+           {:ok, dispatch_ref} <- selected_dispatch_ref(socket) do
+        :ok =
+          ProductMetrics.interaction_started(socket,
+            source: "agents_interact",
+            mode: "interact",
+            dispatch_mode: socket.assigns.runner_form.dispatch_mode
+          )
 
-      case Runner.dispatch(socket.assigns.active_instance_pid, dispatch_ref, payload,
-             dispatch_mode: socket.assigns.runner_form.dispatch_mode,
-             timeout_ms: AgentInteractions.runner_timeout_ms()
-           ) do
-        {:ok, result} ->
-          :ok =
-            ProductMetrics.interaction_completed(socket,
-              source: "agents_interact",
-              mode: "interact",
-              status: "success",
-              dispatch_mode: socket.assigns.runner_form.dispatch_mode
-            )
+        case Runner.dispatch(socket.assigns.active_instance_pid, dispatch_ref, payload,
+               dispatch_mode: socket.assigns.runner_form.dispatch_mode,
+               timeout_ms: AgentInteractions.runner_timeout_ms()
+             ) do
+          {:ok, result} ->
+            :ok =
+              ProductMetrics.interaction_completed(socket,
+                source: "agents_interact",
+                mode: "interact",
+                status: "success",
+                dispatch_mode: socket.assigns.runner_form.dispatch_mode
+              )
 
-          instance_id = socket.assigns[:active_instance_id]
-          history_entry = normalize_runner_history_entry(result, dispatch_ref)
-          history = prepend_runner_history(socket.assigns[:runner_history], history_entry)
+            instance_id = socket.assigns[:active_instance_id]
+            history_entry = normalize_runner_history_entry(result, dispatch_ref)
+            history = prepend_runner_history(socket.assigns[:runner_history], history_entry)
 
-          interaction_history =
-            update_interaction_history(socket.assigns[:interaction_history], instance_id, history)
+            interaction_history =
+              update_interaction_history(
+                socket.assigns[:interaction_history],
+                instance_id,
+                history
+              )
 
+            refreshed_socket = refresh_instance_observability(socket)
+
+            trace_id =
+              RunSummary.latest_trace_id(refreshed_socket.assigns[:instance_observability_events])
+
+            last_run_summary = RunSummary.build_success(result, dispatch_ref, trace_id: trace_id)
+
+            {:noreply,
+             refreshed_socket
+             |> ProductMetrics.maybe_emit_first_interaction_succeeded(
+               source: "agents_interact",
+               mode: "interact"
+             )
+             |> assign(:runner_result, %{status: :ok, value: result})
+             |> assign(:last_run_summary, last_run_summary)
+             |> assign(:show_state_delta?, false)
+             |> assign(:runner_history, history)
+             |> assign(:interaction_history, interaction_history)
+             |> assign(:runner_form, RunnerForm.disarm(socket.assigns.runner_form))
+             |> schedule_workspace_persist(:interaction_history, 100)}
+
+          {:error, reason} ->
+            :ok =
+              ProductMetrics.interaction_completed(socket,
+                source: "agents_interact",
+                mode: "interact",
+                status: "error",
+                dispatch_mode: socket.assigns.runner_form.dispatch_mode
+              )
+
+            {:noreply,
+             socket
+             |> assign(:runner_result, %{status: :error, value: reason})
+             |> assign(
+               :last_run_summary,
+               RunSummary.build_error(reason, dispatch_ref,
+                 dispatch_mode: socket.assigns.runner_form.dispatch_mode
+               )
+             )
+             |> assign(:show_state_delta?, false)
+             |> put_flash(:error, "Dispatch failed: #{format_dispatch_error(reason)}")}
+        end
+      else
+        false ->
           {:noreply,
-           socket
-           |> ProductMetrics.maybe_emit_first_interaction_succeeded(
-             source: "agents_interact",
-             mode: "interact"
-           )
-           |> assign(:runner_result, %{status: :ok, value: result})
-           |> assign(:runner_history, history)
-           |> assign(:interaction_history, interaction_history)
-           |> assign(:runner_form, RunnerForm.disarm(socket.assigns.runner_form))
-           |> schedule_workspace_persist(:interaction_history, 100)}
+           put_flash(
+             socket,
+             :error,
+             "Select a running instance and confirm inputs before running."
+           )}
 
         {:error, reason} ->
-          :ok =
-            ProductMetrics.interaction_completed(socket,
-              source: "agents_interact",
-              mode: "interact",
-              status: "error",
-              dispatch_mode: socket.assigns.runner_form.dispatch_mode
-            )
-
           {:noreply,
            socket
            |> assign(:runner_result, %{status: :error, value: reason})
+           |> assign(
+             :last_run_summary,
+             RunSummary.build_error(reason, nil,
+               dispatch_mode: socket.assigns.runner_form.dispatch_mode
+             )
+           )
+           |> assign(:show_state_delta?, false)
            |> put_flash(:error, "Dispatch failed: #{format_dispatch_error(reason)}")}
       end
-    else
-      false ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "Select a running instance and arm execute before dispatching."
-         )}
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(:runner_result, %{status: :error, value: reason})
-         |> put_flash(:error, "Dispatch failed: #{format_dispatch_error(reason)}")}
     end
+  end
+
+  @impl true
+  def handle_event("toggle_state_delta", _params, socket) do
+    expanded? = not socket.assigns[:show_state_delta?]
+
+    socket =
+      if expanded? do
+        :ok =
+          ProductMetrics.interaction_state_delta_viewed(socket,
+            source: "agents_basic_result",
+            mode: "basic_view",
+            dispatch_ref:
+              normalize_optional_string(
+                get_in(socket.assigns, [:last_run_summary, :dispatch_ref, :signal_type]) ||
+                  get_in(socket.assigns, [:last_run_summary, :dispatch_ref, :primary_signal_type])
+              )
+          )
+
+        assign(socket, :show_state_delta?, true)
+      else
+        assign(socket, :show_state_delta?, false)
+      end
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("open_next_action", %{"path" => path} = params, socket) when is_binary(path) do
+    :ok =
+      ProductMetrics.interaction_next_action_opened(socket,
+        source: "agents_basic_result",
+        mode: "basic_view",
+        next_action: normalize_optional_string(params["next_action"]),
+        trace_id: normalize_optional_string(params["trace_id"])
+      )
+
+    {:noreply, push_navigate(socket, to: path)}
   end
 
   @impl true
@@ -676,7 +871,14 @@ defmodule JidoStudio.AgentsLive do
        |> assign(:start_form, default_start_form(socket.assigns.start_form_schema))
        |> put_flash(:info, "Started instance #{short_instance_id(instance_id)}")
        |> push_navigate(
-         to: agent_instance_path(socket.assigns.prefix, socket.assigns.agent, instance_id)
+         to:
+           agent_instance_path(
+             socket.assigns.prefix,
+             socket.assigns.agent,
+             instance_id,
+             :play,
+             socket.assigns[:instance_view_mode]
+           )
        )}
     else
       {:error, reason} ->
@@ -786,6 +988,7 @@ defmodule JidoStudio.AgentsLive do
       )
       when not is_nil(agent) and action == :show and not is_nil(active_instance_id) do
     workbench_tab = assigns.workbench_tab || :chat
+    instance_view_mode = parse_instance_view_mode(assigns.instance_view_mode || :basic)
 
     instance_section =
       parse_instance_section(assigns.instance_section || section_for_workbench_tab(workbench_tab))
@@ -834,8 +1037,18 @@ defmodule JidoStudio.AgentsLive do
         interaction_actions_for_display(assigns.interaction_model)
       )
       |> assign(:selected_runner_target, RunnerForm.selected_target(assigns.runner_form))
+      |> assign(
+        :payload_form,
+        PayloadForm.build(
+          assigns.interaction_model,
+          RunnerForm.selected_target(assigns.runner_form),
+          assigns.runner_form.payload_json,
+          assigns.runner_field_errors || %{}
+        )
+      )
       |> assign(:expanded_event_ids, assigns.expanded_event_ids || MapSet.new())
       |> assign(:workbench_tab, workbench_tab)
+      |> assign(:instance_view_mode, instance_view_mode)
       |> assign(:instance_section, instance_section)
       |> assign(:section_tabs, workbench_tabs_for_section(instance_section))
       |> assign(
@@ -851,6 +1064,22 @@ defmodule JidoStudio.AgentsLive do
       |> assign(:instance_online?, is_pid(assigns.active_instance_pid))
       |> assign(:module_path, agent_module_path(assigns.prefix, agent))
       |> assign(
+        :basic_view_path,
+        agent_instance_path(assigns.prefix, agent, assigns.active_instance_id, :play, :basic)
+      )
+      |> assign(
+        :advanced_view_path,
+        workbench_path(
+          assigns.prefix,
+          agent,
+          assigns.active_instance_id,
+          workbench_tab,
+          assigns.detail_tab,
+          instance_section,
+          :advanced
+        )
+      )
+      |> assign(
         :traces_path,
         traces_path(assigns.prefix, agent, assigns.active_instance_id, assigns.active_instance_id)
       )
@@ -861,7 +1090,8 @@ defmodule JidoStudio.AgentsLive do
           agent,
           assigns.running_instances,
           assigns.active_instance_id,
-          instance_section
+          instance_section,
+          instance_view_mode
         )
       )
       |> assign(:summary_meta, summary_meta(assigns.runtime_status, assigns.ui_model))
@@ -876,11 +1106,19 @@ defmodule JidoStudio.AgentsLive do
   defp parse_detail_tab(tab, detail_tabs), do: ShowState.parse_detail_tab(tab, detail_tabs)
   defp agent_module_path(prefix, agent), do: ShowState.agent_module_path(prefix, agent)
 
-  defp agent_instance_path(prefix, agent, instance_id, section \\ :play),
-    do: ShowState.agent_instance_path(prefix, agent, instance_id, section)
+  defp agent_instance_path(prefix, agent, instance_id, section, view_mode),
+    do: ShowState.agent_instance_path(prefix, agent, instance_id, section, view_mode)
 
-  defp instance_links(prefix, agent, running_instances, active_instance_id, section),
-    do: ShowState.instance_links(prefix, agent, running_instances, active_instance_id, section)
+  defp instance_links(prefix, agent, running_instances, active_instance_id, section, view_mode),
+    do:
+      ShowState.instance_links(
+        prefix,
+        agent,
+        running_instances,
+        active_instance_id,
+        section,
+        view_mode
+      )
 
   defp traces_path(prefix, agent, instance_id, agent_id),
     do: ShowState.traces_path(prefix, agent, instance_id, agent_id)

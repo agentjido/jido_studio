@@ -146,6 +146,59 @@ defmodule JidoStudio.ProductMetricsTest do
     assert modal_metadata.starter_module == "JidoStudio.BeginnerAgent"
   end
 
+  test "basic loop telemetry emits prefill, state-delta, and next-action events" do
+    prefill_event = [:jido_studio, :onboarding, :starter_payload_prefilled]
+    delta_event = [:jido_studio, :interaction, :state_delta_viewed]
+    next_action_event = [:jido_studio, :interaction, :next_action_opened]
+    handler_id = "product-metrics-basic-loop-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        [prefill_event, delta_event, next_action_event],
+        &__MODULE__.handle_telemetry_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        runtime_key: "primary",
+        cluster_node_param: "all",
+        current_path: "/studio/agents/demo",
+        metrics_session_id: "session123"
+      }
+    }
+
+    :ok =
+      ProductMetrics.onboarding_starter_payload_prefilled(socket,
+        source: "agents_basic_starter",
+        starter_operation: "starter:beginner.ping"
+      )
+
+    assert_receive {:telemetry_event, ^prefill_event, %{count: 1}, prefill_metadata}
+    assert prefill_metadata.starter_operation == "starter:beginner.ping"
+
+    :ok =
+      ProductMetrics.interaction_state_delta_viewed(socket,
+        source: "agents_basic_result",
+        dispatch_ref: "beginner.ping"
+      )
+
+    assert_receive {:telemetry_event, ^delta_event, %{count: 1}, delta_metadata}
+    assert delta_metadata.dispatch_ref == "beginner.ping"
+
+    :ok =
+      ProductMetrics.interaction_next_action_opened(socket,
+        source: "agents_basic_result",
+        next_action: "trace"
+      )
+
+    assert_receive {:telemetry_event, ^next_action_event, %{count: 1}, next_action_metadata}
+    assert next_action_metadata.next_action == "trace"
+  end
+
   def handle_telemetry_event(event, measurements, metadata, pid) do
     send(pid, {:telemetry_event, event, measurements, metadata})
   end

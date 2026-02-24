@@ -12,8 +12,14 @@ Specify the instance-level interaction model for `Agents` so chat and non-chat w
   - `<prefix>/agents/:slug/:instance_id/configure`
 - Query:
   - `panel=<tab_id>`
+  - `view=basic|advanced`
   - `runtime=<runtime_key>`
   - `node=all|<node>`
+
+View mode behavior:
+- default is `basic`
+- explicit `view` wins
+- legacy advanced intent (`panel`, `tab`, `/observe`, `/configure`) resolves to advanced mode
 
 ## Layout Contract
 Stable 3-rail layout:
@@ -22,6 +28,10 @@ Stable 3-rail layout:
 3. Summary/triage rail (right, persistent)
 
 Summary rail must remain visible when switching sections/panels.
+
+Basic/Advanced view split:
+1. `Basic View` (default): starter-first interaction loop, schema-first payload entry, guarded run, result explanation, and next-action links.
+2. `Advanced View`: existing full 3-rail Play/Observe/Configure workbench preserved for power users.
 
 ## Section Model
 ### Play
@@ -85,12 +95,13 @@ Minimum assign/state expectations:
 - Non-chat agents remain first-class via Interact.
 - All errors provide actionable next steps.
 - No section switch should trigger disruptive layout jumps.
+- Switching between Basic/Advanced must be explicit and reversible from the instance page.
 
 ## Acceptance Criteria
-1. Any running non-chat instance is usable without coding via `Play -> Interact`.
+1. Any running non-chat instance is usable without coding via Basic View starter loop or `Play -> Interact` in Advanced View.
 2. `Observe` supports quick event triage and thread context inspection.
 3. `Configure` exposes instance internals without hiding summary rail.
-4. Sharable URLs reopen same section/panel/scope.
+4. Sharable URLs reopen same section/panel/scope and respect `view` mode.
 
 ## Implementation Status (Current Branch)
 1. Route/section contract extraction is in place:
