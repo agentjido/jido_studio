@@ -40,7 +40,7 @@ defmodule JidoStudio.MixProject do
 
   defp deps do
     [
-      {:jido, "~> 2.0.0-rc.4"},
+      {:jido, "~> 2.0"},
       {:jido_ai, github: "agentjido/jido_ai", branch: "main"},
       {:phoenix, "~> 1.7"},
       {:phoenix_html, "~> 4.0"},
