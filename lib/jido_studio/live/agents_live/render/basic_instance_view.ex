@@ -24,10 +24,10 @@ defmodule JidoStudio.Live.AgentsLive.Render.BasicInstanceView do
 
     ~H"""
     <div
-      class="p-3 lg:p-4 space-y-3 lg:flex-1 lg:min-h-0 lg:overflow-hidden lg:flex lg:flex-col"
+      class="p-3 lg:p-4 lg:flex-1 lg:min-h-0 lg:overflow-hidden lg:flex lg:flex-col"
       id="agent-workbench"
     >
-      <div class="js-agent-topbar flex items-center justify-between gap-3 shrink-0">
+      <div class="js-agent-topbar flex items-center justify-between gap-3 shrink-0 mb-3">
         <div class="flex items-center gap-2 text-sm text-js-text-muted">
           <.link navigate={scoped_path(@prefix <> "/agents")} class="hover:text-js-text">
             Agents
@@ -68,6 +68,7 @@ defmodule JidoStudio.Live.AgentsLive.Render.BasicInstanceView do
         </div>
       </div>
 
+      <div class="flex-1 min-h-0 overflow-y-auto space-y-3">
       <.card class="py-3">
         <div class="px-4 lg:px-5">
           <h2 class="text-sm font-semibold text-js-text">Simple Agent Loop</h2>
@@ -404,6 +405,7 @@ defmodule JidoStudio.Live.AgentsLive.Render.BasicInstanceView do
           </div>
         <% end %>
       </.card>
+      </div>
     </div>
     """
   end
