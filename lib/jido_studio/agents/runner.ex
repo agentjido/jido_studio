@@ -111,14 +111,14 @@ defmodule JidoStudio.Agents.Runner do
     end
   end
 
-  defp validate_payload(%{schema: nil}, payload), do: {:ok, ensure_atom_keys(payload)}
-  defp validate_payload(%{schema: []}, payload), do: {:ok, ensure_atom_keys(payload)}
+  defp validate_payload(%{schema: nil}, payload), do: {:ok, payload}
+  defp validate_payload(%{schema: []}, payload), do: {:ok, payload}
 
   defp validate_payload(%{schema: schema}, payload) do
     validation_payload = coerce_payload_keys_for_schema(payload, schema)
 
     case Jido.Action.Schema.validate(schema, validation_payload) do
-      {:ok, validated} -> {:ok, ensure_atom_keys(validated)}
+      {:ok, validated} -> {:ok, normalize_validated_payload(validated)}
       {:error, reason} -> {:error, {:payload_validation_failed, reason}}
     end
   rescue
@@ -157,10 +157,18 @@ defmodule JidoStudio.Agents.Runner do
 
   defp coerce_payload_keys_for_schema(payload, _schema), do: payload
 
-  # Ensure signal payload has atom keys so Strategy.Direct actions can pattern-match.
-  # JSON payloads from the Studio UI arrive with string keys ("domain_id"),
-  # but Jido actions expect atom keys (:domain_id).
-  # Only atomizes keys that already exist as atoms (safe — no atom table pollution).
+  # Schema validation returns maps keyed by schema fields, while the Studio UI starts
+  # with string-key JSON objects. Normalize only known top-level keys back to atoms so
+  # typed actions can pattern-match without changing schema-less payload contracts.
+  defp normalize_validated_payload(%{__struct__: _} = value) do
+    value
+    |> Map.from_struct()
+    |> ensure_atom_keys()
+  end
+
+  defp normalize_validated_payload(value) when is_map(value), do: ensure_atom_keys(value)
+  defp normalize_validated_payload(_), do: %{}
+
   defp ensure_atom_keys(payload) when is_map(payload) do
     Map.new(payload, fn
       {key, value} when is_binary(key) ->
@@ -179,47 +187,6 @@ defmodule JidoStudio.Agents.Runner do
   end
 
   defp ensure_atom_keys(other), do: other
-
-  defp normalize_validated_payload(value) when is_map(value) do
-    if Map.has_key?(value, :__struct__) do
-      value
-      |> Map.from_struct()
-      |> stringify_map_keys()
-    else
-      stringify_map_keys(value)
-    end
-  end
-
-  defp normalize_validated_payload(_), do: %{}
-
-  defp stringify_map_keys(map) when is_map(map) do
-    Enum.reduce(map, %{}, fn {key, value}, acc ->
-      normalized_key =
-        case key do
-          atom when is_atom(atom) -> Atom.to_string(atom)
-          binary when is_binary(binary) -> binary
-          other -> to_string(other)
-        end
-
-      normalized_value =
-        case value do
-          value when is_map(value) -> stringify_map_keys(value)
-          value when is_list(value) -> Enum.map(value, &normalize_list_value/1)
-          other -> other
-        end
-
-      Map.put(acc, normalized_key, normalized_value)
-    end)
-  end
-
-  defp stringify_map_keys(_), do: %{}
-
-  defp normalize_list_value(value) when is_map(value), do: stringify_map_keys(value)
-
-  defp normalize_list_value(value) when is_list(value),
-    do: Enum.map(value, &normalize_list_value/1)
-
-  defp normalize_list_value(value), do: value
 
   defp summarize_result(%{id: id, state: state}) do
     %{
@@ -307,6 +274,13 @@ defmodule JidoStudio.Agents.Runner do
   end
 
   defp normalize_map(_), do: %{}
+
+  defp normalize_list_value(value) when is_map(value), do: normalize_map(value)
+
+  defp normalize_list_value(value) when is_list(value),
+    do: Enum.map(value, &normalize_list_value/1)
+
+  defp normalize_list_value(value), do: value
 
   defp extract_trace_id(%{} = result) do
     normalize_optional_string(

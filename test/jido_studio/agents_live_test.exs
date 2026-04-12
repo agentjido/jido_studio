@@ -439,7 +439,7 @@ defmodule JidoStudio.AgentsLiveTest do
 
     updated = render(view)
     assert updated =~ "Run Succeeded"
-    assert updated =~ "No state fields changed in this run."
+    assert updated =~ "Show what changed"
     assert updated =~ "Open Events"
     assert updated =~ "Open Thread Context"
   end
