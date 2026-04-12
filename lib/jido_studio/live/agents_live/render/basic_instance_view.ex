@@ -24,10 +24,10 @@ defmodule JidoStudio.Live.AgentsLive.Render.BasicInstanceView do
 
     ~H"""
     <div
-      class="p-3 lg:p-4 space-y-3 lg:flex-1 lg:min-h-0 lg:overflow-hidden lg:flex lg:flex-col"
+      class="p-3 lg:p-4 lg:flex-1 lg:min-h-0 lg:overflow-hidden lg:flex lg:flex-col"
       id="agent-workbench"
     >
-      <div class="js-agent-topbar flex items-center justify-between gap-3 shrink-0">
+      <div class="js-agent-topbar flex items-center justify-between gap-3 shrink-0 mb-3">
         <div class="flex items-center gap-2 text-sm text-js-text-muted">
           <.link navigate={scoped_path(@prefix <> "/agents")} class="hover:text-js-text">
             Agents
@@ -68,342 +68,352 @@ defmodule JidoStudio.Live.AgentsLive.Render.BasicInstanceView do
         </div>
       </div>
 
-      <.card class="py-3">
-        <div class="px-4 lg:px-5">
-          <h2 class="text-sm font-semibold text-js-text">Simple Agent Loop</h2>
-          <p class="text-xs text-js-text-muted mt-1">
-            Pick one starter operation, enter inputs, confirm, run once, then review what changed.
-          </p>
-        </div>
-      </.card>
-
-      <div class="grid gap-3 lg:grid-cols-2 lg:min-h-0">
-        <.card class="space-y-3 lg:min-h-0 lg:flex lg:flex-col border-js-info/30">
-          <div>
-            <h3 class="text-sm font-semibold text-js-text">1. Pick a Starter Operation</h3>
+      <div class="flex-1 min-h-0 overflow-y-auto space-y-3">
+        <.card class="py-3">
+          <div class="px-4 lg:px-5">
+            <h2 class="text-sm font-semibold text-js-text">Simple Agent Loop</h2>
             <p class="text-xs text-js-text-muted mt-1">
-              `Ping` checks health, `Add` sums numbers, `Tip` calculates a bill, and `Reset` returns defaults.
+              Pick one starter operation, enter inputs, confirm, run once, then review what changed.
             </p>
           </div>
+        </.card>
 
-          <%= if @starter_operations == [] do %>
-            <.empty_state
-              title="No starter operations available"
-              description="Open Advanced View to inspect routes and choose a signal/action manually."
-            />
-          <% else %>
-            <div class="space-y-2 lg:overflow-y-auto lg:pr-1">
+        <div class="grid gap-3 lg:grid-cols-2 lg:min-h-0">
+          <.card class="space-y-3 lg:min-h-0 lg:flex lg:flex-col border-js-info/30">
+            <div>
+              <h3 class="text-sm font-semibold text-js-text">1. Pick a Starter Operation</h3>
+              <p class="text-xs text-js-text-muted mt-1">
+                `Ping` checks health, `Add` sums numbers, `Tip` calculates a bill, and `Reset` returns defaults.
+              </p>
+            </div>
+
+            <%= if @starter_operations == [] do %>
+              <.empty_state
+                title="No starter operations available"
+                description="Open Advanced View to inspect routes and choose a signal/action manually."
+              />
+            <% else %>
+              <div class="space-y-2 lg:overflow-y-auto lg:pr-1">
+                <button
+                  :for={operation <- @starter_operations}
+                  type="button"
+                  phx-click="prefill_starter_operation"
+                  phx-value-id={operation.id}
+                  class={[
+                    "w-full text-left rounded-md border px-3 py-3 transition-colors",
+                    if(
+                      @selected_runner_target == {:signal, operation.selection_key} or
+                        @selected_runner_target == {:action, operation.selection_key},
+                      do: "border-js-info/60 bg-js-info/10",
+                      else: "border-js-border hover:bg-js-bg-elevated"
+                    )
+                  ]}
+                >
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-js-text">
+                      {operation_display_label(operation)}
+                    </span>
+                    <span class="text-[11px] font-mono text-js-text-subtle">
+                      {operation.signal_type}
+                    </span>
+                  </div>
+                  <p class="mt-1 text-xs text-js-text-muted">{operation.rationale}</p>
+                </button>
+              </div>
+            <% end %>
+          </.card>
+
+          <.card class="space-y-3 lg:min-h-0 lg:flex lg:flex-col">
+            <div>
+              <h3 class="text-sm font-semibold text-js-text">2. Set Inputs and Run</h3>
+              <p class="text-xs text-js-text-muted mt-1">
+                Selected operation:
+                <span class="text-js-text font-medium">
+                  {selected_operation_label(@selected_operation, @selected_runner_target)}
+                </span>
+              </p>
+              <p
+                :if={
+                  is_binary(selected_operation_signal(@selected_operation, @selected_runner_target))
+                }
+                class="text-xs text-js-text-subtle mt-1"
+              >
+                Signal sent:
+                <span class="font-mono">
+                  {selected_operation_signal(@selected_operation, @selected_runner_target)}
+                </span>
+              </p>
+              <p
+                :if={is_map(@selected_operation)}
+                class="text-xs text-js-text-subtle mt-1"
+              >
+                {@selected_operation.rationale}
+              </p>
               <button
-                :for={operation <- @starter_operations}
+                :if={is_map(@selected_operation)}
                 type="button"
                 phx-click="prefill_starter_operation"
-                phx-value-id={operation.id}
-                class={[
-                  "w-full text-left rounded-md border px-3 py-3 transition-colors",
-                  if(
-                    @selected_runner_target == {:signal, operation.selection_key} or
-                      @selected_runner_target == {:action, operation.selection_key},
-                    do: "border-js-info/60 bg-js-info/10",
-                    else: "border-js-border hover:bg-js-bg-elevated"
-                  )
-                ]}
+                phx-value-id={@selected_operation.id}
+                class="mt-2 inline-flex rounded-md border border-js-info/40 bg-js-info/10 px-2.5 py-1 text-xs text-js-info hover:brightness-110"
               >
-                <div class="flex items-center justify-between gap-2">
-                  <span class="text-sm font-medium text-js-text">
-                    {operation_display_label(operation)}
-                  </span>
-                  <span class="text-[11px] font-mono text-js-text-subtle">
-                    {operation.signal_type}
-                  </span>
+                Use Sample Inputs
+              </button>
+            </div>
+
+            <div class="grid gap-3 xl:grid-cols-2 xl:min-h-0">
+              <div class="space-y-3 rounded-md border border-js-info/30 bg-js-info/5 p-3">
+                <div class="rounded-md border border-js-info/40 bg-js-info/10 px-3 py-2.5 text-xs text-js-text-muted">
+                  Input Editor
+                  <div class="mt-1 inline-flex rounded-md border border-js-info/40 bg-js-bg p-0.5">
+                    <button
+                      type="button"
+                      phx-click="set_schema_mode"
+                      phx-value-mode="fields"
+                      class={schema_mode_button_class(@runner_form.schema_mode == "fields")}
+                    >
+                      Guided Fields
+                    </button>
+                    <button
+                      type="button"
+                      phx-click="set_schema_mode"
+                      phx-value-mode="raw"
+                      class={schema_mode_button_class(@runner_form.schema_mode == "raw")}
+                    >
+                      Raw JSON (Advanced)
+                    </button>
+                  </div>
+                  <p class="mt-1 text-[11px] text-js-text-subtle">
+                    Use Guided Fields unless this operation needs custom nested JSON.
+                  </p>
                 </div>
-                <p class="mt-1 text-xs text-js-text-muted">{operation.rationale}</p>
+
+                <%= if @runner_form.schema_mode == "fields" and @payload_form.supported? do %>
+                  <form phx-change="update_runner_fields" class="space-y-2">
+                    <div class="grid gap-2 sm:grid-cols-2">
+                      <label
+                        :for={field <- @payload_form.fields}
+                        class="block rounded-md border border-js-info/35 bg-js-bg p-2.5 text-xs text-js-text-muted"
+                      >
+                        <div class="flex items-center justify-between gap-2">
+                          <span class="font-medium text-js-text">{field.label}</span>
+                          <span class="rounded border border-js-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-js-text-subtle">
+                            {field_type_label(field.type)}
+                          </span>
+                        </div>
+                        <p
+                          :if={show_field_description?(field.description)}
+                          class="mt-1 text-[11px] text-js-text-subtle"
+                        >
+                          {field_description(field.description)}
+                        </p>
+                        <input
+                          type={field_input_type(field.type)}
+                          inputmode={field_input_mode(field.type)}
+                          step={field_input_step(field.type)}
+                          name={"fields[#{field.name}]"}
+                          value={field.value}
+                          placeholder={field_placeholder(field)}
+                          class="mt-2 w-full rounded-md border border-js-info/35 bg-js-bg-surface px-2.5 py-2 text-sm text-js-text font-mono"
+                        />
+                        <p :if={field.required?} class="mt-1 text-[11px] text-js-text-subtle">
+                          Required
+                        </p>
+                        <p :if={field.error} class="mt-1 text-[11px] text-js-error">{field.error}</p>
+                      </label>
+                    </div>
+                  </form>
+                <% else %>
+                  <div class="space-y-2">
+                    <p
+                      :if={@runner_form.schema_mode == "fields" and is_binary(@payload_form.reason)}
+                      class="rounded-md border border-js-warning/40 bg-js-warning/10 px-2.5 py-2 text-xs text-js-warning"
+                    >
+                      {payload_form_message(@payload_form.reason)}
+                    </p>
+                    <form phx-change="update_runner_payload" class="space-y-2">
+                      <input
+                        type="hidden"
+                        name="runner[schema_mode]"
+                        value={@runner_form.schema_mode}
+                      />
+                      <label class="text-xs text-js-text-muted block">
+                        Payload JSON <textarea
+                          name="runner[payload_json]"
+                          rows="8"
+                          class="mt-1 w-full rounded-md border border-js-border bg-js-bg p-2.5 text-xs text-js-text font-mono"
+                        ><%= @runner_form.payload_json %></textarea>
+                      </label>
+                    </form>
+                  </div>
+                <% end %>
+
+                <details class="rounded-md border border-js-info/30 bg-js-bg-elevated/20 px-2.5 py-2 text-xs text-js-text-muted">
+                  <summary class="cursor-pointer text-js-text-muted">Advanced: Dispatch mode</summary>
+                  <label class="block mt-2">
+                    <select
+                      name="mode"
+                      phx-change="set_dispatch_mode"
+                      class="w-full rounded-md border border-js-border bg-js-bg px-2.5 py-2 text-xs text-js-text"
+                    >
+                      <option value="sync" selected={@runner_form.dispatch_mode == "sync"}>
+                        sync (wait for result)
+                      </option>
+                      <option value="async" selected={@runner_form.dispatch_mode == "async"}>
+                        async (queue only)
+                      </option>
+                    </select>
+                  </label>
+                </details>
+
+                <div class="rounded-md border border-js-warning/45 bg-js-warning/10 p-2.5 space-y-2">
+                  <p class="text-xs text-js-text-muted">
+                    Safety check: confirm inputs before dispatching.
+                  </p>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <div class="mt-1 inline-flex rounded-md border border-js-warning/40 bg-js-bg p-0.5">
+                      <button
+                        type="button"
+                        phx-click="arm_runner_execute"
+                        class={
+                          if(@runner_form.guard_armed?,
+                            do:
+                              "inline-flex rounded-md border border-js-success/40 bg-js-success/10 px-3 py-1.5 text-xs text-js-success",
+                            else:
+                              "inline-flex rounded-md border border-js-info/40 bg-js-info/10 px-3 py-1.5 text-xs text-js-info hover:brightness-110"
+                          )
+                        }
+                      >
+                        {if(@runner_form.guard_armed?, do: "Inputs Confirmed", else: "Confirm Inputs")}
+                      </button>
+                      <button
+                        type="button"
+                        phx-click="run_selected_interaction"
+                        disabled={!RunnerForm.can_execute?(@runner_form)}
+                        class={[
+                          "inline-flex rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed",
+                          if(RunnerForm.can_execute?(@runner_form),
+                            do:
+                              "border border-js-success/45 bg-js-success/10 text-js-success hover:brightness-110",
+                            else: "border border-js-border text-js-text-muted"
+                          )
+                        ]}
+                      >
+                        Run Interaction
+                      </button>
+                      <button
+                        type="button"
+                        phx-click="clear_runner_history"
+                        class="inline-flex rounded-md border border-js-border px-3 py-1.5 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+                      >
+                        Clear History
+                      </button>
+                    </div>
+                  </div>
+                  <p class="text-[11px] text-js-text-subtle">
+                    {runner_guard_hint(@runner_form.guard_armed?)}
+                  </p>
+                </div>
+              </div>
+
+              <div class="rounded-md border border-js-success/35 bg-js-success/5 p-3 space-y-2 xl:min-h-full">
+                <div>
+                  <h4 class="text-sm font-semibold text-js-text">Current Agent State</h4>
+                  <p class="text-xs text-js-text-muted mt-1">
+                    Live snapshot from this instance. Run an operation, then watch these values update.
+                  </p>
+                </div>
+                <%= if @state_rows == [] do %>
+                  <p class="text-xs text-js-text-muted">
+                    No readable top-level state fields were found.
+                  </p>
+                <% else %>
+                  <dl class="grid gap-1.5">
+                    <div
+                      :for={row <- @state_rows}
+                      class="flex items-start justify-between gap-3 text-xs rounded-md border border-js-success/25 bg-js-bg/70 px-2 py-1.5"
+                    >
+                      <dt class="font-mono text-js-text">{row.key}</dt>
+                      <dd class="font-mono text-js-text text-right break-all">{row.value}</dd>
+                    </div>
+                  </dl>
+                <% end %>
+                <details class="rounded-md border border-js-success/30 bg-js-bg px-2.5 py-2">
+                  <summary class="cursor-pointer text-xs text-js-text-muted">
+                    View raw state JSON
+                  </summary>
+                  <pre class="mt-2 text-[11px] text-js-text-subtle whitespace-pre-wrap break-words"><%= @state_json %></pre>
+                </details>
+              </div>
+            </div>
+          </.card>
+        </div>
+
+        <.card class="space-y-3">
+          <h3 class="text-sm font-semibold text-js-text">3. See What Happened</h3>
+          <%= if is_nil(@last_run_summary) do %>
+            <p class="text-xs text-js-text-muted">
+              Run once to see status, state changes, and suggested next steps.
+            </p>
+          <% else %>
+            <div class="flex items-center gap-2">
+              <.badge variant={if(@last_run_summary.status == :success, do: :success, else: :error)}>
+                {if(@last_run_summary.status == :success, do: "Run Succeeded", else: "Run Failed")}
+              </.badge>
+              <span class="text-xs font-mono text-js-text-subtle">
+                {@last_run_summary.signal_type}
+              </span>
+            </div>
+            <p :if={@last_run_summary.status == :error} class="text-xs text-js-error">
+              Error: {@last_run_summary[:error] || "unknown"}
+            </p>
+
+            <%= if @last_run_summary.status == :success do %>
+              <p class="text-xs text-js-text-muted">
+                {@last_run_summary.memory_note}
+              </p>
+
+              <%= if @last_run_summary.state_changed? do %>
+                <button
+                  type="button"
+                  phx-click="toggle_state_delta"
+                  class="inline-flex rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text"
+                >
+                  {if(@show_state_delta?, do: "Hide what changed", else: "Show what changed")}
+                </button>
+
+                <div :if={@show_state_delta?} class="space-y-1">
+                  <div
+                    :for={entry <- @last_run_summary.state_delta}
+                    class="rounded border border-js-border bg-js-bg-elevated/30 px-2.5 py-2 text-xs"
+                  >
+                    <p class="font-mono text-js-text">{entry.key}</p>
+                    <p class="text-js-text-muted mt-1">Before: {entry.previous}</p>
+                    <p class="text-js-text-muted">After: {entry.current}</p>
+                  </div>
+                </div>
+              <% else %>
+                <p class="text-xs text-js-text-muted">No state fields changed in this run.</p>
+              <% end %>
+            <% else %>
+              <p class="text-xs text-js-text-muted">Fix the inputs above, then run again.</p>
+            <% end %>
+
+            <div class="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                :for={action <- @next_actions}
+                type="button"
+                phx-click="open_next_action"
+                phx-value-path={action.path}
+                phx-value-next_action={action.key}
+                phx-value-trace_id={@last_run_summary.trace_id || ""}
+                class="inline-flex rounded-md border border-js-border px-2.5 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
+              >
+                {action.label}
               </button>
             </div>
           <% end %>
-        </.card>
-
-        <.card class="space-y-3 lg:min-h-0 lg:flex lg:flex-col">
-          <div>
-            <h3 class="text-sm font-semibold text-js-text">2. Set Inputs and Run</h3>
-            <p class="text-xs text-js-text-muted mt-1">
-              Selected operation:
-              <span class="text-js-text font-medium">
-                {selected_operation_label(@selected_operation, @selected_runner_target)}
-              </span>
-            </p>
-            <p
-              :if={is_binary(selected_operation_signal(@selected_operation, @selected_runner_target))}
-              class="text-xs text-js-text-subtle mt-1"
-            >
-              Signal sent:
-              <span class="font-mono">
-                {selected_operation_signal(@selected_operation, @selected_runner_target)}
-              </span>
-            </p>
-            <p
-              :if={is_map(@selected_operation)}
-              class="text-xs text-js-text-subtle mt-1"
-            >
-              {@selected_operation.rationale}
-            </p>
-            <button
-              :if={is_map(@selected_operation)}
-              type="button"
-              phx-click="prefill_starter_operation"
-              phx-value-id={@selected_operation.id}
-              class="mt-2 inline-flex rounded-md border border-js-info/40 bg-js-info/10 px-2.5 py-1 text-xs text-js-info hover:brightness-110"
-            >
-              Use Sample Inputs
-            </button>
-          </div>
-
-          <div class="grid gap-3 xl:grid-cols-2 xl:min-h-0">
-            <div class="space-y-3 rounded-md border border-js-info/30 bg-js-info/5 p-3">
-              <div class="rounded-md border border-js-info/40 bg-js-info/10 px-3 py-2.5 text-xs text-js-text-muted">
-                Input Editor
-                <div class="mt-1 inline-flex rounded-md border border-js-info/40 bg-js-bg p-0.5">
-                  <button
-                    type="button"
-                    phx-click="set_schema_mode"
-                    phx-value-mode="fields"
-                    class={schema_mode_button_class(@runner_form.schema_mode == "fields")}
-                  >
-                    Guided Fields
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="set_schema_mode"
-                    phx-value-mode="raw"
-                    class={schema_mode_button_class(@runner_form.schema_mode == "raw")}
-                  >
-                    Raw JSON (Advanced)
-                  </button>
-                </div>
-                <p class="mt-1 text-[11px] text-js-text-subtle">
-                  Use Guided Fields unless this operation needs custom nested JSON.
-                </p>
-              </div>
-
-              <%= if @runner_form.schema_mode == "fields" and @payload_form.supported? do %>
-                <form phx-change="update_runner_fields" class="space-y-2">
-                  <div class="grid gap-2 sm:grid-cols-2">
-                    <label
-                      :for={field <- @payload_form.fields}
-                      class="block rounded-md border border-js-info/35 bg-js-bg p-2.5 text-xs text-js-text-muted"
-                    >
-                      <div class="flex items-center justify-between gap-2">
-                        <span class="font-medium text-js-text">{field.label}</span>
-                        <span class="rounded border border-js-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-js-text-subtle">
-                          {field_type_label(field.type)}
-                        </span>
-                      </div>
-                      <p
-                        :if={show_field_description?(field.description)}
-                        class="mt-1 text-[11px] text-js-text-subtle"
-                      >
-                        {field_description(field.description)}
-                      </p>
-                      <input
-                        type={field_input_type(field.type)}
-                        inputmode={field_input_mode(field.type)}
-                        step={field_input_step(field.type)}
-                        name={"fields[#{field.name}]"}
-                        value={field.value}
-                        placeholder={field_placeholder(field)}
-                        class="mt-2 w-full rounded-md border border-js-info/35 bg-js-bg-surface px-2.5 py-2 text-sm text-js-text font-mono"
-                      />
-                      <p :if={field.required?} class="mt-1 text-[11px] text-js-text-subtle">
-                        Required
-                      </p>
-                      <p :if={field.error} class="mt-1 text-[11px] text-js-error">{field.error}</p>
-                    </label>
-                  </div>
-                </form>
-              <% else %>
-                <div class="space-y-2">
-                  <p
-                    :if={@runner_form.schema_mode == "fields" and is_binary(@payload_form.reason)}
-                    class="rounded-md border border-js-warning/40 bg-js-warning/10 px-2.5 py-2 text-xs text-js-warning"
-                  >
-                    {payload_form_message(@payload_form.reason)}
-                  </p>
-                  <form phx-change="update_runner_payload" class="space-y-2">
-                    <input type="hidden" name="runner[schema_mode]" value={@runner_form.schema_mode} />
-                    <label class="text-xs text-js-text-muted block">
-                      Payload JSON <textarea
-                        name="runner[payload_json]"
-                        rows="8"
-                        class="mt-1 w-full rounded-md border border-js-border bg-js-bg p-2.5 text-xs text-js-text font-mono"
-                      ><%= @runner_form.payload_json %></textarea>
-                    </label>
-                  </form>
-                </div>
-              <% end %>
-
-              <details class="rounded-md border border-js-info/30 bg-js-bg-elevated/20 px-2.5 py-2 text-xs text-js-text-muted">
-                <summary class="cursor-pointer text-js-text-muted">Advanced: Dispatch mode</summary>
-                <label class="block mt-2">
-                  <select
-                    name="mode"
-                    phx-change="set_dispatch_mode"
-                    class="w-full rounded-md border border-js-border bg-js-bg px-2.5 py-2 text-xs text-js-text"
-                  >
-                    <option value="sync" selected={@runner_form.dispatch_mode == "sync"}>
-                      sync (wait for result)
-                    </option>
-                    <option value="async" selected={@runner_form.dispatch_mode == "async"}>
-                      async (queue only)
-                    </option>
-                  </select>
-                </label>
-              </details>
-
-              <div class="rounded-md border border-js-warning/45 bg-js-warning/10 p-2.5 space-y-2">
-                <p class="text-xs text-js-text-muted">
-                  Safety check: confirm inputs before dispatching.
-                </p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <div class="mt-1 inline-flex rounded-md border border-js-warning/40 bg-js-bg p-0.5">
-                    <button
-                      type="button"
-                      phx-click="arm_runner_execute"
-                      class={
-                        if(@runner_form.guard_armed?,
-                          do:
-                            "inline-flex rounded-md border border-js-success/40 bg-js-success/10 px-3 py-1.5 text-xs text-js-success",
-                          else:
-                            "inline-flex rounded-md border border-js-info/40 bg-js-info/10 px-3 py-1.5 text-xs text-js-info hover:brightness-110"
-                        )
-                      }
-                    >
-                      {if(@runner_form.guard_armed?, do: "Inputs Confirmed", else: "Confirm Inputs")}
-                    </button>
-                    <button
-                      type="button"
-                      phx-click="run_selected_interaction"
-                      disabled={!RunnerForm.can_execute?(@runner_form)}
-                      class={[
-                        "inline-flex rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed",
-                        if(RunnerForm.can_execute?(@runner_form),
-                          do:
-                            "border border-js-success/45 bg-js-success/10 text-js-success hover:brightness-110",
-                          else: "border border-js-border text-js-text-muted"
-                        )
-                      ]}
-                    >
-                      Run Interaction
-                    </button>
-                    <button
-                      type="button"
-                      phx-click="clear_runner_history"
-                      class="inline-flex rounded-md border border-js-border px-3 py-1.5 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-                    >
-                      Clear History
-                    </button>
-                  </div>
-                </div>
-                <p class="text-[11px] text-js-text-subtle">
-                  {runner_guard_hint(@runner_form.guard_armed?)}
-                </p>
-              </div>
-            </div>
-
-            <div class="rounded-md border border-js-success/35 bg-js-success/5 p-3 space-y-2 xl:min-h-full">
-              <div>
-                <h4 class="text-sm font-semibold text-js-text">Current Agent State</h4>
-                <p class="text-xs text-js-text-muted mt-1">
-                  Live snapshot from this instance. Run an operation, then watch these values update.
-                </p>
-              </div>
-              <%= if @state_rows == [] do %>
-                <p class="text-xs text-js-text-muted">
-                  No readable top-level state fields were found.
-                </p>
-              <% else %>
-                <dl class="grid gap-1.5">
-                  <div
-                    :for={row <- @state_rows}
-                    class="flex items-start justify-between gap-3 text-xs rounded-md border border-js-success/25 bg-js-bg/70 px-2 py-1.5"
-                  >
-                    <dt class="font-mono text-js-text">{row.key}</dt>
-                    <dd class="font-mono text-js-text text-right break-all">{row.value}</dd>
-                  </div>
-                </dl>
-              <% end %>
-              <details class="rounded-md border border-js-success/30 bg-js-bg px-2.5 py-2">
-                <summary class="cursor-pointer text-xs text-js-text-muted">
-                  View raw state JSON
-                </summary>
-                <pre class="mt-2 text-[11px] text-js-text-subtle whitespace-pre-wrap break-words"><%= @state_json %></pre>
-              </details>
-            </div>
-          </div>
         </.card>
       </div>
-
-      <.card class="space-y-3">
-        <h3 class="text-sm font-semibold text-js-text">3. See What Happened</h3>
-        <%= if is_nil(@last_run_summary) do %>
-          <p class="text-xs text-js-text-muted">
-            Run once to see status, state changes, and suggested next steps.
-          </p>
-        <% else %>
-          <div class="flex items-center gap-2">
-            <.badge variant={if(@last_run_summary.status == :success, do: :success, else: :error)}>
-              {if(@last_run_summary.status == :success, do: "Run Succeeded", else: "Run Failed")}
-            </.badge>
-            <span class="text-xs font-mono text-js-text-subtle">{@last_run_summary.signal_type}</span>
-          </div>
-          <p :if={@last_run_summary.status == :error} class="text-xs text-js-error">
-            Error: {@last_run_summary[:error] || "unknown"}
-          </p>
-
-          <%= if @last_run_summary.status == :success do %>
-            <p class="text-xs text-js-text-muted">
-              {@last_run_summary.memory_note}
-            </p>
-
-            <%= if @last_run_summary.state_changed? do %>
-              <button
-                type="button"
-                phx-click="toggle_state_delta"
-                class="inline-flex rounded-md border border-js-border px-2 py-1 text-xs text-js-text-muted hover:text-js-text"
-              >
-                {if(@show_state_delta?, do: "Hide what changed", else: "Show what changed")}
-              </button>
-
-              <div :if={@show_state_delta?} class="space-y-1">
-                <div
-                  :for={entry <- @last_run_summary.state_delta}
-                  class="rounded border border-js-border bg-js-bg-elevated/30 px-2.5 py-2 text-xs"
-                >
-                  <p class="font-mono text-js-text">{entry.key}</p>
-                  <p class="text-js-text-muted mt-1">Before: {entry.previous}</p>
-                  <p class="text-js-text-muted">After: {entry.current}</p>
-                </div>
-              </div>
-            <% else %>
-              <p class="text-xs text-js-text-muted">No state fields changed in this run.</p>
-            <% end %>
-          <% else %>
-            <p class="text-xs text-js-text-muted">Fix the inputs above, then run again.</p>
-          <% end %>
-
-          <div class="flex flex-wrap items-center gap-2 pt-1">
-            <button
-              :for={action <- @next_actions}
-              type="button"
-              phx-click="open_next_action"
-              phx-value-path={action.path}
-              phx-value-next_action={action.key}
-              phx-value-trace_id={@last_run_summary.trace_id || ""}
-              class="inline-flex rounded-md border border-js-border px-2.5 py-1 text-xs text-js-text-muted hover:text-js-text hover:bg-js-bg-elevated"
-            >
-              {action.label}
-            </button>
-          </div>
-        <% end %>
-      </.card>
     </div>
     """
   end
