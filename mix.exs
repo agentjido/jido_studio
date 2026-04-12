@@ -40,8 +40,8 @@ defmodule JidoStudio.MixProject do
 
   defp deps do
     [
-      {:jido, "~> 2.0"},
-      {:jido_ai, github: "agentjido/jido_ai", branch: "main"},
+      {:jido, "~> 2.1.0"},
+      {:jido_ai, "~> 2.0.0"},
       {:phoenix, "~> 1.7"},
       {:phoenix_html, "~> 4.0"},
       {:phoenix_live_view, "~> 1.0"},
@@ -55,13 +55,22 @@ defmodule JidoStudio.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
+      {:git_ops, "~> 2.9", only: :dev, runtime: false},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false}
     ]
   end
 
   defp package do
     [
-      files: ["lib", "priv/static", "priv/ecto", "mix.exs", "README.md", "LICENSE"],
+      files: [
+        "lib",
+        "priv/static",
+        "priv/ecto",
+        "mix.exs",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE"
+      ],
       maintainers: ["Mike Hostetler"],
       licenses: ["Apache-2.0"],
       links: %{
@@ -79,6 +88,7 @@ defmodule JidoStudio.MixProject do
       source_url: @source_url,
       extras: [
         {"README.md", title: "Home"},
+        {"CHANGELOG.md", title: "Changelog"},
         {"LICENSE", title: "License"}
       ]
     ]

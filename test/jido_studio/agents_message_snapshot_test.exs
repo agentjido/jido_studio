@@ -63,7 +63,7 @@ defmodule JidoStudio.Agents.MessageSnapshotTest do
         __strategy__: %{
           thread: %{
             entries: [
-              %Jido.AI.Thread.Entry{
+              %Jido.AI.Context.Entry{
                 role: :user,
                 content: "test",
                 timestamp: ~U[2026-02-22 18:47:48.383209Z]
