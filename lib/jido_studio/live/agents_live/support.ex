@@ -6,6 +6,7 @@ defmodule JidoStudio.Live.AgentsLive.Support do
   alias JidoStudio.AgentInteractions
   alias JidoStudio.Agents.InstanceIndex
   alias JidoStudio.Delegation
+  alias JidoStudio.Display
   alias JidoStudio.Live.AgentsLive.Contracts
   alias JidoStudio.Live.AgentsLive.Errors
   alias JidoStudio.Live.AgentsLive.Routes
@@ -545,14 +546,15 @@ defmodule JidoStudio.Live.AgentsLive.Support do
              else: "Persisted snapshot (instance offline)"
            )},
           {"Captured At", format_event_timestamp(Map.get(snapshot, :captured_at))},
-          {"Status", to_string(Map.get(snapshot, :status, "unknown"))},
-          {"Strategy Thread", to_string(Map.get(snapshot, :strategy_thread_id, "n/a"))},
-          {"Iteration", to_string(Map.get(snapshot, :iteration, 0))},
-          {"Conversation", to_string(Map.get(snapshot, :conversation_count, 0))},
-          {"Pending Tool Calls", to_string(Map.get(snapshot, :pending_tool_calls_count, 0))},
-          {"Thinking Blocks", to_string(Map.get(snapshot, :thinking_blocks_count, 0))},
-          {"Termination", to_string(Map.get(snapshot, :termination_reason, "n/a"))},
-          {"Model", to_string(Map.get(snapshot, :model, "n/a"))}
+          {"Status", Display.value(Map.get(snapshot, :status), "unknown")},
+          {"Strategy Thread", Display.value(Map.get(snapshot, :strategy_thread_id), "n/a")},
+          {"Iteration", Display.value(Map.get(snapshot, :iteration), "0")},
+          {"Conversation", Display.value(Map.get(snapshot, :conversation_count), "0")},
+          {"Pending Tool Calls",
+           Display.value(Map.get(snapshot, :pending_tool_calls_count), "0")},
+          {"Thinking Blocks", Display.value(Map.get(snapshot, :thinking_blocks_count), "0")},
+          {"Termination", Display.value(Map.get(snapshot, :termination_reason), "n/a")},
+          {"Model", Display.model_label(Map.get(snapshot, :model), "n/a")}
         ]
 
       sections = [
@@ -631,7 +633,7 @@ defmodule JidoStudio.Live.AgentsLive.Support do
 
     [
       {"Status", summary_status_label(status), summary_status_variant(status)},
-      {"Model", to_string(model_label || "n/a"), :info},
+      {"Model", Display.model_label(model_label, "n/a"), :info},
       {"Iteration", to_string(details[:iteration] || 0), :default},
       {"Tool Calls", to_string(length(details[:tool_calls] || [])), :default},
       {"Turns", to_string(length(details[:conversation] || [])), :default}
