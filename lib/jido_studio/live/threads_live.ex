@@ -5,6 +5,7 @@ defmodule JidoStudio.ThreadsLive do
   import JidoStudio.Components
 
   alias JidoStudio.Cluster.Scope
+  alias JidoStudio.PathSegments
   alias JidoStudio.Threads
 
   @impl true
@@ -280,11 +281,11 @@ defmodule JidoStudio.ThreadsLive do
     base =
       prefix <>
         "/threads/" <>
-        URI.encode_www_form(thread.agent_slug) <>
+        PathSegments.encode(thread.agent_slug) <>
         "/" <>
-        URI.encode_www_form(thread.instance_id) <>
+        PathSegments.encode(thread.instance_id) <>
         "/" <>
-        URI.encode_www_form(thread.thread_id)
+        PathSegments.encode(thread.thread_id)
 
     if query == "" do
       Scope.with_scope_query(base, Scope.current_node_param())
@@ -309,7 +310,7 @@ defmodule JidoStudio.ThreadsLive do
     )
   end
 
-  defp decode_segment(value) when is_binary(value), do: URI.decode_www_form(value)
+  defp decode_segment(value) when is_binary(value), do: PathSegments.decode(value)
   defp decode_segment(_), do: ""
 
   defp format_timestamp(ts) when is_integer(ts) and ts > 0 do

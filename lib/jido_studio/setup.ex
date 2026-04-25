@@ -3,6 +3,7 @@ defmodule JidoStudio.Setup do
 
   alias JidoStudio.AgentRegistry
   alias JidoStudio.Cluster.RPC
+  alias JidoStudio.PathSegments
   alias JidoStudio.ScopeQuery
   alias JidoStudio.Setup.Profiles
   alias JidoStudio.Threads.Storage, as: ThreadsStorage
@@ -413,7 +414,7 @@ defmodule JidoStudio.Setup do
           |> Enum.find_value(&Map.get(&1, :id))
 
         if is_binary(slug) and is_binary(instance_id) do
-          "#{prefix}/agents/#{slug}/#{URI.encode_www_form(instance_id)}"
+          "#{prefix}/agents/#{slug}/#{PathSegments.encode(instance_id)}"
         end
       end)
 
