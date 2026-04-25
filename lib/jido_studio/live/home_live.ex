@@ -12,6 +12,7 @@ defmodule JidoStudio.HomeLive do
   alias JidoStudio.Live.HomeLive.State, as: HomeState
   alias JidoStudio.Naming
   alias JidoStudio.Observability.Incidents
+  alias JidoStudio.PathSegments
   alias JidoStudio.ProductMetrics
   alias JidoStudio.Setup
   alias JidoStudio.Setup.Helpers
@@ -613,7 +614,7 @@ defmodule JidoStudio.HomeLive do
 
       instance_id ->
         ScopeQuery.with_scope_query(
-          "#{prefix}/agents/#{slug}/#{URI.encode_www_form(instance_id)}",
+          "#{prefix}/agents/#{slug}/#{PathSegments.encode(instance_id)}",
           runtime_key,
           node_param
         )

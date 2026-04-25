@@ -3,6 +3,7 @@ defmodule JidoStudio.Live.AgentsLive.Routes do
 
   alias JidoStudio.Cluster.Scope
   alias JidoStudio.Live.AgentsLive.Contracts
+  alias JidoStudio.PathSegments
 
   def workbench_section_path(prefix, agent, instance_id, section, view_mode \\ nil) do
     section =
@@ -10,7 +11,7 @@ defmodule JidoStudio.Live.AgentsLive.Routes do
       |> Contracts.parse_instance_section()
       |> Contracts.section_query_value()
 
-    path = "#{prefix}/agents/#{agent.slug}/#{URI.encode_www_form(instance_id)}/#{section}"
+    path = "#{prefix}/agents/#{agent.slug}/#{PathSegments.encode(instance_id)}/#{section}"
 
     with_view =
       case Contracts.parse_instance_view_mode_param(view_mode) do

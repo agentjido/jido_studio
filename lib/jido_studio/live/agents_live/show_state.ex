@@ -13,13 +13,14 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
   alias JidoStudio.Live.AgentsLive.Routes
   alias JidoStudio.Live.AgentsLive.Support
   alias JidoStudio.Observability.Incidents
+  alias JidoStudio.PathSegments
   alias JidoStudio.Presenters.Default
 
   @default_model "claude-sonnet-4-5"
 
   def apply_show(socket, slug, params, opts \\ []) do
     jido_instance = socket.assigns[:jido_instance]
-    requested_instance_id = Map.get(params, "instance_id")
+    requested_instance_id = PathSegments.decode(Map.get(params, "instance_id"))
     start_modal_requested? = start_modal_requested?(params)
     requested_view_mode = Support.parse_instance_view_mode_param(Map.get(params, "view"))
     requested_workbench_tab = Support.requested_workbench_tab(params)
@@ -457,7 +458,7 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
 
   def active_instance_path(prefix, %{agent_slug: slug, instance_id: instance_id})
       when is_binary(prefix) and is_binary(slug) and is_binary(instance_id) do
-    scoped_path("#{prefix}/agents/#{slug}/#{URI.encode_www_form(instance_id)}/play")
+    scoped_path("#{prefix}/agents/#{slug}/#{PathSegments.encode(instance_id)}/play")
   end
 
   def active_instance_path(_prefix, _row), do: nil
