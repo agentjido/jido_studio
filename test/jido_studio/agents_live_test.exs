@@ -540,6 +540,73 @@ defmodule JidoStudio.AgentsLiveTest do
     refute rendered =~ "Saved Thread"
   end
 
+  test "show renders persisted thread context when model metadata is structured", %{conn: conn} do
+    table =
+      String.to_atom(
+        "jido_studio_agents_live_structured_model_#{System.unique_integer([:positive])}"
+      )
+
+    restore_persistence = stash_app_env(:jido_studio, :thread_persistence, true)
+    restore_storage_mode = stash_app_env(:jido_studio, :thread_storage_mode, :studio)
+
+    restore_storage =
+      stash_app_env(:jido_studio, :thread_storage, {Jido.Storage.ETS, table: table})
+
+    on_exit(fn ->
+      restore_persistence.()
+      restore_storage_mode.()
+      restore_storage.()
+
+      for suffix <- [:checkpoints, :threads, :thread_meta] do
+        table_name = String.to_atom("#{table}_#{suffix}")
+
+        if :ets.whereis(table_name) != :undefined do
+          :ets.delete(table_name)
+        end
+      end
+    end)
+
+    instance_id = "structured-model-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _pid} = Jido.start_agent(TestJido, NonChatAgent, id: instance_id)
+
+    slug = slug_for_module(NonChatAgent)
+    chat_state = ChatSession.with_initial_thread("Saved Thread")
+    thread_id = chat_state.active_thread_id
+
+    assert :ok =
+             ThreadsManager.save_workspace(
+               slug,
+               instance_id,
+               chat_state,
+               jido_instance: TestJido,
+               thread_contexts: %{
+                 thread_id => %{
+                   captured_at: System.system_time(:millisecond),
+                   status: :running,
+                   strategy_thread_id: thread_id,
+                   iteration: 2,
+                   conversation_count: 1,
+                   pending_tool_calls_count: 0,
+                   thinking_blocks_count: 0,
+                   termination_reason: :waiting,
+                   model: %{provider: :openai, id: "openai/gpt-oss-20b"}
+                 }
+               }
+             )
+
+    {:ok, view, _html} =
+      live(
+        conn,
+        "/studio/agents/#{slug}/#{instance_id}/observe?panel=thread_context&view=advanced"
+      )
+
+    rendered = render(view)
+
+    assert rendered =~ "Persisted Context Snapshot"
+    assert rendered =~ "Persisted Workspace"
+  end
+
   test "show defaults to chat for chat-capable agents", %{conn: conn} do
     restore_api_key = stash_env("ANTHROPIC_API_KEY")
     restore_claude_key = stash_env("CLAUDE_API_KEY")

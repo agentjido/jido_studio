@@ -3,6 +3,7 @@ defmodule JidoStudio.Presenters.Default do
   @behaviour JidoStudio.AgentPresenter
 
   alias JidoStudio.Chat.Runtime
+  alias JidoStudio.Display
 
   @default_model "claude-sonnet-4-5"
   @default_chat_timeout_ms 30_000
@@ -175,7 +176,7 @@ defmodule JidoStudio.Presenters.Default do
   end
 
   defp maybe_section(_title, nil), do: nil
-  defp maybe_section(title, value), do: section(title, :text, to_string(value))
+  defp maybe_section(title, value), do: section(title, :text, Display.value(value))
 
   defp empty_title(true), do: "How can I help you today?"
   defp empty_title(false), do: "Chat unavailable"
@@ -213,7 +214,7 @@ defmodule JidoStudio.Presenters.Default do
   defp model_from_opts(opts) do
     opts
     |> Keyword.get(:model, @default_model)
-    |> to_string()
+    |> Display.model_label(@default_model)
   end
 
   defp max_iterations_from_opts(opts) do
@@ -265,7 +266,7 @@ defmodule JidoStudio.Presenters.Default do
   defp debug_variant(false), do: :default
 
   defp maybe_meta(_key, nil), do: nil
-  defp maybe_meta(key, value), do: {key, to_string(value)}
+  defp maybe_meta(key, value), do: {key, Display.value(value)}
 
   defp normalize_timeout(timeout_ms) when is_integer(timeout_ms) and timeout_ms > 0,
     do: timeout_ms

@@ -9,6 +9,7 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
   alias JidoStudio.Agents.StarterOperations
   alias JidoStudio.Chat.Runtime, as: ChatRuntime
   alias JidoStudio.Cluster.Scope
+  alias JidoStudio.Display
   alias JidoStudio.Live.AgentsLive.Routes
   alias JidoStudio.Live.AgentsLive.Support
   alias JidoStudio.Observability.Incidents
@@ -295,7 +296,7 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
     module
     |> strategy_opts()
     |> Keyword.get(:model, default_model)
-    |> to_string()
+    |> Display.model_label(default_model)
   end
 
   def strategy_model(_, default_model), do: default_model
@@ -617,7 +618,8 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
       placeholder: to_string(merged.placeholder || defaults.placeholder),
       empty_title: to_string(merged.empty_title || defaults.empty_title),
       empty_description: to_string(merged.empty_description || defaults.empty_description),
-      model_label: if(is_nil(merged.model_label), do: nil, else: to_string(merged.model_label)),
+      model_label:
+        if(is_nil(merged.model_label), do: nil, else: Display.model_label(merged.model_label)),
       streaming_enabled:
         (merged.streaming_enabled == true or defaults.streaming_enabled == true) and
           merged.enabled == true,
@@ -764,7 +766,7 @@ defmodule JidoStudio.Live.AgentsLive.ShowState do
   def provider_from_model_label(_), do: nil
 
   def runtime_model_label(%{snapshot: %{details: details}}) when is_map(details) do
-    details[:model] || details["model"]
+    Display.model_label(details[:model] || details["model"], nil)
   end
 
   def runtime_model_label(_), do: nil
