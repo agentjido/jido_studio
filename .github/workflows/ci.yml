@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+  merge_group:
   push:
     branches:
       - main
@@ -10,154 +11,21 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-
-    permissions:
-      contents: read
-
-    env:
-      MIX_ENV: dev
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Setup Elixir
-        uses: erlef/setup-beam@v1
-        with:
-          otp-version: "28"
-          elixir-version: "1.19"
-
-      - name: Restore Hex/Mix cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.hex
-            ~/.mix
-          key: ${{ runner.os }}-beamtools-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-beamtools-otp28-elixir1.19-
-
-      - name: Install Hex/Rebar
-        run: |
-          set -euo pipefail
-          mix local.hex --force
-          mix local.rebar --force
-
-      - name: Restore dependencies cache
-        uses: actions/cache@v5
-        id: deps-cache
-        with:
-          path: |
-            deps
-            _build
-          key: ${{ runner.os }}-mix-dev-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-dev-otp28-elixir1.19-
-
-      - name: Remove cached rebar3 build artifacts in deps
-        if: steps.deps-cache.outputs.cache-hit != 'true'
-        run: |
-          if [ -d deps ]; then
-            find deps -maxdepth 6 -type d \( -name _build -o -name .rebar3 \) -prune -exec rm -rf {} + || true
-            find deps -maxdepth 6 -type f -name rebar3.crashdump -delete || true
-          fi
-
-      - name: Install dependencies
-        run: mix deps.get
-
-      - name: Compile dependencies
-        if: steps.deps-cache.outputs.cache-hit != 'true'
-        run: mix deps.compile
-
-      - name: Check formatting
-        run: mix format --check-formatted
-
-      - name: Compile project
-        run: mix compile --warnings-as-errors
-
-      - name: Run Credo
-        run: mix credo --min-priority higher
-
-      - name: Check for unused dependencies
-        run: mix deps.unlock --check-unused
-
-      - name: Audit Hex dependencies
-        run: mix hex.audit
-
-  test:
-    name: Test (OTP ${{ matrix.otp }}, Elixir ${{ matrix.elixir }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-
-    permissions:
-      contents: read
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - otp: "27"
-            elixir: "1.19"
-          - otp: "28"
-            elixir: "1.19"
-
-    env:
-      MIX_ENV: test
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Setup Elixir
-        uses: erlef/setup-beam@v1
-        with:
-          otp-version: ${{ matrix.otp }}
-          elixir-version: ${{ matrix.elixir }}
-
-      - name: Restore Hex/Mix cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.hex
-            ~/.mix
-          key: ${{ runner.os }}-beamtools-otp${{ matrix.otp }}-elixir${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-beamtools-otp${{ matrix.otp }}-elixir${{ matrix.elixir }}-
-
-      - name: Install Hex/Rebar
-        run: |
-          set -euo pipefail
-          mix local.hex --force
-          mix local.rebar --force
-
-      - name: Restore dependencies cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            deps
-            _build
-          key: ${{ runner.os }}-mix-test-otp${{ matrix.otp }}-elixir${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}
-
-      - name: Remove cached rebar3 build artifacts in deps
-        run: |
-          if [ -d deps ]; then
-            find deps -maxdepth 6 -type d \( -name _build -o -name .rebar3 \) -prune -exec rm -rf {} + || true
-            find deps -maxdepth 6 -type f -name rebar3.crashdump -delete || true
-          fi
-
-      - name: Install dependencies
-        run: mix deps.get
-
-      - name: Compile dependencies
-        run: mix deps.compile
-
-      - name: Compile project
-        run: mix compile --warnings-as-errors
-
-      - name: Run tests
-        run: mix test
+  ci:
+    name: CI
+    uses: agentjido/github-actions/.github/workflows/jido-ci.yml@v4
+    secrets: inherit
+    with:
+      otp_versions: '["27", "28"]'
+      elixir_versions: '["1.19"]'
+      experimental_compile_elixir_versions: '["v1.20.0-rc.4"]'
+      experimental_compile_otp_versions: '["28.4.1"]'
+      experimental_compile_otp_name: '28'
+      credo_command: mix credo --min-priority higher
+      docs_command: mix docs -f html
+      test_command: mix test
