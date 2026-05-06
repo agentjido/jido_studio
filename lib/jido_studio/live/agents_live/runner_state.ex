@@ -42,7 +42,7 @@ defmodule JidoStudio.Live.AgentsLive.RunnerState do
   def maybe_apply_payload_template(%RunnerForm{} = form, interaction_model, selection) do
     template = payload_template_for_selection(interaction_model, selection)
 
-    if form.payload_json in [nil, "", "{}"] and template not in [nil, "{}", ""] do
+    if form.payload_json in ["", "{}"] and template not in ["{}", ""] do
       RunnerForm.parse(%{"payload_json" => template}, form)
     else
       form
