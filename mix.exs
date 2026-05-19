@@ -43,7 +43,7 @@ defmodule JidoStudio.MixProject do
   defp deps do
     [
       {:jido, "~> 2.2.0"},
-      {:jido_ai, "~> 2.0.0"},
+      {:jido_ai, "~> 2.1.0"},
       {:phoenix, "~> 1.7"},
       {:phoenix_html, "~> 4.0"},
       {:phoenix_live_view, "~> 1.0"},
