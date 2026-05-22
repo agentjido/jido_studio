@@ -1,7 +1,7 @@
 defmodule JidoStudio.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "1.0.0"
   @source_url "https://github.com/agentjido/jido_studio"
   @description "Embeddable agent studio for Jido - a standalone LiveView dashboard for managing and debugging AI agents"
 
@@ -42,8 +42,8 @@ defmodule JidoStudio.MixProject do
 
   defp deps do
     [
-      {:jido, "~> 2.2.0"},
-      {:jido_ai, "~> 2.1.0"},
+      {:jido, "~> 2.3"},
+      {:jido_ai, "~> 2.2"},
       {:phoenix, "~> 1.7"},
       {:phoenix_html, "~> 4.0"},
       {:phoenix_live_view, "~> 1.0"},
