@@ -1,5 +1,13 @@
 # Jido Studio
 
+[![Hex.pm](https://img.shields.io/hexpm/v/jido_studio.svg)](https://hex.pm/packages/jido_studio)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_studio/)
+[![CI](https://github.com/agentjido/jido_studio/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido_studio/actions/workflows/ci.yml)
+[![License](https://img.shields.io/hexpm/l/jido_studio.svg)](https://github.com/agentjido/jido_studio/blob/main/LICENSE)
+[![Website](https://img.shields.io/badge/website-jido.run-0f172a.svg)](https://jido.run)
+[![Ecosystem](https://img.shields.io/badge/ecosystem-jido.run-0ea5e9.svg)](https://jido.run/ecosystem)
+[![Discord](https://img.shields.io/badge/discord-join-5865F2.svg?logo=discord&logoColor=white)](https://jido.run/discord)
+
 Embeddable agent studio for Phoenix applications — a standalone LiveView dashboard for managing and debugging [Jido](https://github.com/agentjido/jido) AI agents.
 
 Inspired by [Mastra Studio](https://mastra.ai/docs/getting-started/studio) and modeled after [Oban Web](https://hex.pm/packages/oban_web), Jido Studio is a self-contained Hex package that mounts directly into your Phoenix router with zero asset pipeline integration.
