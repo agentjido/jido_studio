@@ -11,22 +11,30 @@ defmodule JidoStudio.TraceBuffer do
   @table :jido_studio_traces
   @handler_id "jido-studio-trace-buffer"
 
-  @sensitive_key_patterns [
-    ~r/^api_?key$/i,
-    ~r/^password$/i,
-    ~r/^secret$/i,
-    ~r/^token$/i,
-    ~r/^auth_?token$/i,
-    ~r/^private_?key$/i,
-    ~r/^access_?key$/i,
-    ~r/^bearer$/i,
-    ~r/^api_?secret$/i,
-    ~r/^client_?secret$/i,
-    ~r/secret_/i,
-    ~r/_secret$/i,
-    ~r/_key$/i,
-    ~r/_token$/i,
-    ~r/_password$/i
+  @sensitive_exact_keys [
+    "apikey",
+    "api_key",
+    "password",
+    "secret",
+    "token",
+    "authtoken",
+    "auth_token",
+    "privatekey",
+    "private_key",
+    "accesskey",
+    "access_key",
+    "bearer",
+    "apisecret",
+    "api_secret",
+    "clientsecret",
+    "client_secret"
+  ]
+
+  @sensitive_suffixes [
+    "_secret",
+    "_key",
+    "_token",
+    "_password"
   ]
 
   @filter_key_map %{
@@ -361,7 +369,11 @@ defmodule JidoStudio.TraceBuffer do
   end
 
   defp sensitive_key?(key) when is_binary(key) do
-    Enum.any?(@sensitive_key_patterns, &Regex.match?(&1, key))
+    normalized_key = String.downcase(key)
+
+    normalized_key in @sensitive_exact_keys or
+      String.contains?(normalized_key, "secret_") or
+      String.ends_with?(normalized_key, @sensitive_suffixes)
   end
 
   defp sensitive_key?(_), do: false
