@@ -72,4 +72,5 @@ jido_studio/
 ## Git Commit Guidelines
 
 - Use conventional commit format: `type(scope): description`
+- Do not modify `CHANGELOG.md`; release notes are generated from Git history during release, so keep changes focused on proper Conventional Commits.
 - Never add "ampcode" as a contributor
