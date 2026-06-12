@@ -126,6 +126,4 @@ defmodule JidoStudio.Persistence do
       function_exported?(adapter, :append_event, 3) and
       function_exported?(adapter, :read_events, 2)
   end
-
-  defp valid_adapter?(_), do: false
 end

@@ -346,7 +346,7 @@ defmodule JidoStudio.Threads.Codec do
       key = normalize_optional_binary(key)
       value = normalize_optional_binary(value)
 
-      if is_binary(key) and key != "" and is_binary(value) and value != "" do
+      if key != "" and is_binary(value) and value != "" do
         Map.put(acc, key, value)
       else
         acc

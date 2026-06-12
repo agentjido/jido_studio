@@ -336,8 +336,6 @@ defmodule JidoStudio.Chat.Runtime do
     |> Map.get(:__strategy__, %{})
   end
 
-  defp strategy_state(_), do: %{}
-
   defp extract_tool_events(entries, since_entry_count) when is_list(entries) do
     scoped_entries = Enum.drop(entries, min(since_entry_count, length(entries)))
 

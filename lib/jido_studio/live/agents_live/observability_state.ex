@@ -71,9 +71,6 @@ defmodule JidoStudio.Live.AgentsLive.ObservabilityState do
           |> Map.get(:duration)
           |> duration_to_ms()
 
-        is_map(start_event) and is_map(stop_event) ->
-          (stop_event[:timestamp_ms] || 0) - (start_event[:timestamp_ms] || 0)
-
         true ->
           nil
       end

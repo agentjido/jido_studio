@@ -156,8 +156,6 @@ defmodule JidoStudio.Agents.PayloadForm do
     end
   end
 
-  defp field_definitions(_), do: {:error, "Complex schema requires raw JSON mode."}
-
   defp simple_type(field_schema) when is_map(field_schema) do
     type = field_schema[:type] || field_schema["type"]
 

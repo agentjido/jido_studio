@@ -186,8 +186,6 @@ defmodule JidoStudio.Agents.Runner do
     end)
   end
 
-  defp ensure_atom_keys(other), do: other
-
   defp summarize_result(%{id: id, state: state}) do
     %{
       agent_id: normalize_optional_string(id),
@@ -229,8 +227,6 @@ defmodule JidoStudio.Agents.Runner do
     _ -> nil
   end
 
-  defp status_snapshot(_), do: nil
-
   defp safe_state_snapshot(pid) when is_pid(pid) do
     case Jido.AgentServer.state(pid) do
       {:ok, %{state: state}} when is_map(state) ->
@@ -247,8 +243,6 @@ defmodule JidoStudio.Agents.Runner do
   catch
     :exit, _ -> %{}
   end
-
-  defp safe_state_snapshot(_), do: %{}
 
   defp normalize_map(%{__struct__: _} = struct),
     do: struct |> Map.from_struct() |> normalize_map()
@@ -290,8 +284,6 @@ defmodule JidoStudio.Agents.Runner do
     )
   end
 
-  defp extract_trace_id(_), do: nil
-
   defp dispatch_mode(:async), do: :async
   defp dispatch_mode("async"), do: :async
   defp dispatch_mode(_), do: :sync
@@ -300,8 +292,6 @@ defmodule JidoStudio.Agents.Runner do
   defp normalize_timeout(_), do: AgentInteractions.runner_timeout_ms()
 
   defp normalize_signal_type(value) when is_binary(value), do: String.trim(value)
-  defp normalize_signal_type(value) when is_atom(value), do: Atom.to_string(value)
-  defp normalize_signal_type(_), do: "unknown.signal"
 
   defp normalize_source(value) when is_binary(value) do
     case String.trim(value) do

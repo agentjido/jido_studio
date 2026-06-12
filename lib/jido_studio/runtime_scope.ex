@@ -184,8 +184,6 @@ defmodule JidoStudio.RuntimeScope do
     |> Enum.map_join(" ", &capitalize/1)
   end
 
-  defp humanize_key(_), do: "Runtime"
-
   defp capitalize(""), do: ""
 
   defp capitalize(value) do

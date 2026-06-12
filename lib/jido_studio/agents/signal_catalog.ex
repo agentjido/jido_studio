@@ -133,10 +133,10 @@ defmodule JidoStudio.Agents.SignalCatalog do
     |> Enum.map(fn route ->
       source =
         case route do
-          {path, _target, _priority} when is_binary(path) ->
+          {path, _target, opts} when is_binary(path) and is_list(opts) ->
             if String.contains?(path, ".__schedule__."), do: :plugin_schedule, else: :plugin
 
-          {path, _target, opts} when is_binary(path) and is_list(opts) ->
+          {path, _target, _priority} when is_binary(path) ->
             if String.contains?(path, ".__schedule__."), do: :plugin_schedule, else: :plugin
 
           _ ->
@@ -318,8 +318,6 @@ defmodule JidoStudio.Agents.SignalCatalog do
   rescue
     _ -> []
   end
-
-  defp safe_strategy_opts(_), do: []
 
   defp normalize_signal_type(value) when is_binary(value) do
     case String.trim(value) do

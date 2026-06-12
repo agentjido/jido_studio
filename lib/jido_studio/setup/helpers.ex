@@ -87,6 +87,4 @@ defmodule JidoStudio.Setup.Helpers do
       _ -> "n/a"
     end
   end
-
-  defp storage_path(_), do: "n/a"
 end

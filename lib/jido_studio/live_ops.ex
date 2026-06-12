@@ -212,13 +212,8 @@ defmodule JidoStudio.LiveOps do
 
   @spec presence_available?() :: boolean()
   def presence_available? do
-    case presence_module() do
-      module when is_atom(module) ->
-        Code.ensure_loaded?(module) and function_exported?(module, :list, 1)
-
-      _ ->
-        false
-    end
+    module = presence_module()
+    Code.ensure_loaded?(module) and function_exported?(module, :list, 1)
   end
 
   @spec pubsub_name() :: atom()

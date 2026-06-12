@@ -4,12 +4,11 @@ defmodule JidoStudio.Display do
   def value(value, default \\ "n/a")
 
   def value(value, default) when value in [nil, ""], do: default
+  def value(value, _default) when is_boolean(value), do: to_string(value)
   def value(value, _default) when is_binary(value), do: value
   def value(value, _default) when is_atom(value), do: Atom.to_string(value)
   def value(value, _default) when is_integer(value), do: Integer.to_string(value)
   def value(value, _default) when is_float(value), do: Float.to_string(value)
-  def value(true, _default), do: "true"
-  def value(false, _default), do: "false"
 
   def value(value, _default) do
     inspect(value, pretty: true, limit: 120, printable_limit: 20_000)

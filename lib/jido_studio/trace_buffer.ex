@@ -465,8 +465,6 @@ defmodule JidoStudio.TraceBuffer do
     _ -> :ok
   end
 
-  defp broadcast_live_ops(_), do: :ok
-
   defp infer_entity_type(prefix) when is_list(prefix) do
     values = Enum.map(prefix, &to_string/1)
 
@@ -481,8 +479,6 @@ defmodule JidoStudio.TraceBuffer do
     end
   end
 
-  defp infer_entity_type(_), do: :other
-
   defp infer_internal?(prefix) when is_list(prefix) do
     values = Enum.map(prefix, &to_string/1)
 
@@ -490,8 +486,6 @@ defmodule JidoStudio.TraceBuffer do
       Enum.member?(values, "agent_server") or
       Enum.member?(values, "middleware")
   end
-
-  defp infer_internal?(_), do: false
 
   defp event_status(:exception), do: "error"
   defp event_status("exception"), do: "error"
@@ -521,8 +515,6 @@ defmodule JidoStudio.TraceBuffer do
     |> maybe_put_scope(:project_id, metadata[:project_id] || metadata["project_id"])
     |> maybe_put_scope(:user_id, metadata[:user_id] || metadata["user_id"])
   end
-
-  defp scope_from_metadata(_), do: %{}
 
   defp maybe_put_scope(scope, _key, nil), do: scope
   defp maybe_put_scope(scope, key, value), do: Map.put(scope, key, value)

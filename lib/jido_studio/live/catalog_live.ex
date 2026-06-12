@@ -240,15 +240,15 @@ defmodule JidoStudio.CatalogLive do
 
     results =
       case RPC.call(scope, Jido.Discovery, fun, args) do
-        {:ok, items} when is_list(items) ->
-          items
-
-        {:ok, node_results} when is_list(node_results) ->
+        {:ok, [%{ok?: _} | _] = node_results} ->
           node_results
           |> Enum.flat_map(fn
             %{ok?: true, value: items} when is_list(items) -> items
             _ -> []
           end)
+
+        {:ok, items} when is_list(items) ->
+          items
 
         _ ->
           []

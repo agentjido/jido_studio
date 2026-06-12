@@ -125,8 +125,6 @@ defmodule JidoStudio.Threads do
     end
   end
 
-  defp payload_preview(payload), do: inspect(payload, limit: 6, printable_limit: 800)
-
   defp trace_id_from(payload, refs) do
     refs[:trace_id] || refs["trace_id"] || payload[:trace_id] || payload["trace_id"] ||
       payload[:jido_trace_id] || payload["jido_trace_id"]

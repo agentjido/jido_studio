@@ -157,12 +157,12 @@ defmodule JidoStudio.ProductMetrics do
     |> Telemetry.compact_metadata()
   end
 
-  defp normalize_metadata_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_metadata_value(nil), do: nil
+  defp normalize_metadata_value(value) when is_boolean(value), do: value
   defp normalize_metadata_value(value) when is_binary(value), do: String.trim(value)
+  defp normalize_metadata_value(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_metadata_value(value) when is_integer(value), do: value
   defp normalize_metadata_value(value) when is_float(value), do: value
-  defp normalize_metadata_value(value) when is_boolean(value), do: value
-  defp normalize_metadata_value(nil), do: nil
   defp normalize_metadata_value(value), do: inspect(value)
 
   defp normalize_optional_string(value) when is_binary(value) do

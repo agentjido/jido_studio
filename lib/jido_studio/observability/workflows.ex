@@ -155,8 +155,6 @@ defmodule JidoStudio.Observability.Workflows do
     end
   end
 
-  defp duration(_), do: nil
-
   defp run_sort_key(run) when is_map(run) do
     run[:last_event_at] || run[:updated_at] || run[:started_at] || 0
   end
