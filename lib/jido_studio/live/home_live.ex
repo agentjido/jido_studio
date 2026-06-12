@@ -719,8 +719,6 @@ defmodule JidoStudio.HomeLive do
     end
   end
 
-  defp maybe_emit_next_step_links_telemetry(socket, _), do: socket
-
   defp normalize_starter_mode(value, fallback) when is_binary(value) do
     case String.trim(value) do
       "" -> fallback

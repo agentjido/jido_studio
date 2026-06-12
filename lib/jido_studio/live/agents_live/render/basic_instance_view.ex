@@ -473,9 +473,6 @@ defmodule JidoStudio.Live.AgentsLive.Render.BasicInstanceView do
     "Guided fields unavailable: #{reason} Switch to Raw JSON (Advanced) to continue."
   end
 
-  defp payload_form_message(_),
-    do: "Guided fields unavailable. Switch to Raw JSON (Advanced) to continue."
-
   defp schema_mode_button_class(true),
     do: "rounded bg-js-bg-elevated px-2.5 py-1.5 text-xs text-js-text"
 
@@ -517,7 +514,6 @@ defmodule JidoStudio.Live.AgentsLive.Render.BasicInstanceView do
   defp show_field_description?(_), do: false
 
   defp field_description(value) when is_binary(value), do: String.trim(value)
-  defp field_description(_), do: nil
 
   defp runner_guard_hint(true),
     do: "Inputs are confirmed. Any edit will require confirmation again."
@@ -680,8 +676,6 @@ defmodule JidoStudio.Live.AgentsLive.Render.BasicInstanceView do
     |> String.split("::", parts: 2)
     |> List.first()
   end
-
-  defp compact_signal_key(_), do: "unknown"
 
   defp scoped_path(path), do: ShowState.scoped_path(path)
 end

@@ -332,8 +332,6 @@ defmodule JidoStudio.Observability.Incidents do
     end
   end
 
-  defp next_status(_, _), do: "running"
-
   defp error_event?(event) when is_map(event) do
     normalize_optional_string(event[:status]) == "error" or
       normalize_optional_string(event[:type]) == "exception" or

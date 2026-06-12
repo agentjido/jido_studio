@@ -1271,8 +1271,6 @@ defmodule JidoStudio.Ingestor do
     |> Enum.take(-max_size)
   end
 
-  defp append_recent_item(items, _item, _max_size), do: List.wrap(items)
-
   defp safe_doc_segment(value) do
     value
     |> to_string()
@@ -1288,8 +1286,6 @@ defmodule JidoStudio.Ingestor do
       true -> []
     end
   end
-
-  defp middleware_chain(_), do: []
 
   defp event_timestamp(event) when is_map(event) do
     case event[:timestamp_ms] do

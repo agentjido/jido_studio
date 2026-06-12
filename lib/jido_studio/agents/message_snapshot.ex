@@ -61,23 +61,17 @@ defmodule JidoStudio.Agents.MessageSnapshot do
     |> Enum.reverse()
   end
 
-  defp thread_entries_from_status(_), do: []
-
   defp strategy_state(status) when is_map(status) do
     status
     |> field(:raw_state, %{})
     |> field(:__strategy__, %{})
   end
 
-  defp strategy_state(_), do: %{}
-
   defp snapshot_details(status) when is_map(status) do
     status
     |> field(:snapshot, %{})
     |> field(:details, %{})
   end
-
-  defp snapshot_details(_), do: %{}
 
   defp role(entry) when is_map(entry) do
     case field(entry, :role) do

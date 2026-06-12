@@ -17,12 +17,12 @@ defmodule JidoStudio.Observability.Correlation do
     :incident_id
   ]
 
-  @type record :: map()
+  @type correlation_record :: map()
 
   @spec canonical_keys() :: [atom()]
   def canonical_keys, do: @canonical_keys
 
-  @spec normalize(record()) :: record()
+  @spec normalize(correlation_record()) :: correlation_record()
   def normalize(record) when is_map(record) do
     metadata = normalize_map(fetch(record, :metadata))
     scope = merged_scope(fetch(record, :scope), metadata)
@@ -118,7 +118,7 @@ defmodule JidoStudio.Observability.Correlation do
 
   def normalize(other), do: %{ts: now_ms(), incident_id: nil, raw: other}
 
-  @spec incident_id(record()) :: String.t() | nil
+  @spec incident_id(correlation_record()) :: String.t() | nil
   def incident_id(record) when is_map(record) do
     record
     |> normalize()
@@ -150,8 +150,6 @@ defmodule JidoStudio.Observability.Correlation do
         nil
     end
   end
-
-  defp incident_id_from(_), do: nil
 
   defp action_from_entity(entity_type, entity_id) do
     if normalize_optional_string(entity_type) in ["tool", "action"] do

@@ -18,7 +18,7 @@ defmodule JidoStudio.Cluster.Collect do
 
   defp collect_all(module, fun, args, rpc_fun) do
     case rpc_fun.(:all, module, fun, args) do
-      {:ok, results} when is_list(results) ->
+      {:ok, [%{ok?: _} | _] = results} ->
         results
         |> Enum.flat_map(fn
           %{ok?: true, value: items} when is_list(items) -> items

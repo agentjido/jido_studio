@@ -122,7 +122,7 @@ defmodule JidoStudio.Diagnostics.Timeline do
     scope
     |> RPC.call(Tracing, :list_traces, [query_opts])
     |> case do
-      {:ok, node_results} when is_list(node_results) ->
+      {:ok, [%{ok?: _} | _] = node_results} ->
         node_results
         |> Enum.flat_map(fn
           %{ok?: true, node: node, value: value} when is_list(value) ->
@@ -190,8 +190,6 @@ defmodule JidoStudio.Diagnostics.Timeline do
     |> max(0.0)
     |> min(100.0)
   end
-
-  defp clamp_percentage(_), do: 0.0
 
   defp maybe_clear_critical(spans, true), do: spans
 
