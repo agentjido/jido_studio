@@ -49,7 +49,7 @@ defmodule JidoStudio.MixProject do
       {:phoenix_live_view, "~> 1.0"},
       {:phoenix_pubsub, "~> 2.1"},
       {:jason, "~> 1.4"},
-      {:mdex, "~> 0.12.2"},
+      {:mdex, "~> 0.13.0"},
       {:telemetry_metrics, "~> 1.0"},
       {:lucide_icons, "~> 2.0"},
 
