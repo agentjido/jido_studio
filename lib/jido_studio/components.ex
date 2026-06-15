@@ -225,8 +225,7 @@ defmodule JidoStudio.Components do
       class="hidden"
       data-js-tour-metric
       phx-click="tour_metric"
-    >
-    </button>
+    ></button>
     """
   end
 
