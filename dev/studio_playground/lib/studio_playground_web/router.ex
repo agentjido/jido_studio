@@ -21,9 +21,10 @@ defmodule StudioPlaygroundWeb.Router do
 
     get "/", PageController, :home
 
-    jido_studio "/studio",
+    jido_studio("/studio",
       jido_instance: StudioPlayground.Jido,
       host_app_js_path: "/assets/js/app.js"
+    )
   end
 
   # Other scopes may use custom stacks.
