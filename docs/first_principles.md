@@ -39,6 +39,8 @@ Jido Studio is not a model playground and not a replacement for app business ana
 - Boundary statement: "Operations/debugging, not general BI or model benchmarking."
 
 ## Jobs To Be Done
+Detailed experience contracts and the research cycle are in `docs/jtbd/README.md`.
+
 1. Know what is running right now.
 The user wants a clear answer to: Which Agents are online, healthy, and active?
 
