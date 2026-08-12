@@ -6,7 +6,7 @@ defmodule JidoStudio.AboutLive do
 
   @default_links [
     %{label: "Agent Jido", url: "https://agentjido.xyz"},
-    %{label: "LLMDB", url: "https://llmdb.xyz"},
+    %{label: "LLMDB", url: "https://llmcatalog.dev"},
     %{label: "GitHub", url: "https://github.com/agentjido/jido_studio"},
     %{label: "Community", url: "https://github.com/agentjido/jido/discussions"}
   ]
