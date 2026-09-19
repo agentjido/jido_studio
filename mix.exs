@@ -58,6 +58,7 @@ defmodule JidoStudio.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:git_ops, "~> 2.9", only: :dev, runtime: false},
+      {:lazy_html, ">= 0.1.0", only: :test},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false}
     ]
   end
