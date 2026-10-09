@@ -42,8 +42,8 @@ defmodule JidoStudio.MixProject do
 
   defp deps do
     [
-      {:jido, "~> 2.3"},
-      {:jido_ai, "~> 2.2"},
+      {:jido, "~> 2.4"},
+      {:jido_ai, "~> 2.4"},
       {:phoenix, "~> 1.7"},
       {:phoenix_html, "~> 4.0"},
       {:phoenix_live_view, "~> 1.0"},
