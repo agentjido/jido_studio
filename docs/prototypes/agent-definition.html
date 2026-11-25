@@ -1,0 +1,761 @@
+<!doctype html>
+<!--
+  title: Agent definition prototype
+  status: proposed
+  last-reviewed: 2026-11-24
+  rules: ../guides/agent-definition-visual-rules.md
+  evidence:
+    ../../studio_playground/lib/studio_playground/demo_counter.ex
+    ../../studio_playground/lib/studio_playground/demo_counter/increment.ex
+    ../../studio_playground/lib/studio_playground/demo_counter/increment_action.ex
+    ../../studio_playground/lib/studio_playground_web/live/definition_mockup_live.ex
+    ../../studio_playground/assets/css/definition_mockup.css
+    ../../lib/jido_studio/shell.css
+    ../../lib/jido_studio/components.css
+
+  Single offline file. No network requests, storage, or agent calls.
+  Query options for comparisons: ?node=signal|route|action|state|reply&theme=dark|light
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="revision" content="A">
+<title>Demo counter · Agent definition prototype</title>
+<style>
+  /* Studio theme roles. Values from lib/jido_studio/shell.css and components.css. */
+  :root {
+    --studio-bg: #0a0a0a;
+    --studio-sidebar: #0d0d0d;
+    --studio-active: #1a1a1a;
+    --studio-card: #121212;
+    --studio-border: #292929;
+    --studio-text: #e8e8e8;
+    --studio-muted: #a1a1a1;
+    --studio-primary: #00ff80;
+    --studio-success: #00ff80;
+    --studio-warning: #ffb700;
+    --studio-info: #00d4ff;
+    --studio-control-border: #696969;
+
+    /* Node role accents. Rule: Nodes and connections, accent table. */
+    --role-signal: var(--studio-info);
+    --role-route: var(--studio-warning);
+    --role-action: var(--studio-success);
+    --role-state: #c6a6ff;
+    --role-reply: #ff9cbe;
+
+    --definition-wire: color-mix(in srgb, var(--studio-muted) 65%, var(--studio-border));
+    --definition-dot: color-mix(in srgb, var(--studio-muted) 28%, transparent);
+    --focus-ring: var(--studio-text);
+
+    --pad-node: 12px;
+    --pad-panel: 16px;
+    --pad-page: 24px;
+
+    --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+
+  :root[data-theme="light"] {
+    --studio-bg: #fcf9f4;
+    --studio-sidebar: #f7f4ef;
+    --studio-active: #eeebe6;
+    --studio-card: #fff;
+    --studio-border: #e7e5e2;
+    --studio-text: #1b1916;
+    --studio-muted: #6d655c;
+    --studio-primary: #0fa968;
+    --studio-success: #087747;
+    --studio-warning: #8a5800;
+    --studio-info: #006d85;
+    --studio-control-border: #837a6e;
+    --role-state: #6941a4;
+    --role-reply: #93405d;
+    color-scheme: light;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-block-size: 100dvh;
+    background: var(--studio-bg);
+    color: var(--studio-text);
+    font: 14px/1.5 var(--font-sans);
+  }
+  h1, h2, h3, p, dl, dd, ul { margin: 0; }
+  ul { padding: 0; list-style: none; }
+  code, .mono { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+  .sr-only {
+    position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+  svg.icon { inline-size: 14px; block-size: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  [data-role="signal"] { --accent: var(--role-signal); }
+  [data-role="route"]  { --accent: var(--role-route); }
+  [data-role="action"] { --accent: var(--role-action); }
+  [data-role="state"]  { --accent: var(--role-state); }
+  [data-role="reply"]  { --accent: var(--role-reply); }
+
+  /* Page */
+  .page {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 16px;
+    min-block-size: 100dvh;
+    padding: var(--pad-page);
+  }
+
+  .page-header {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px;
+  }
+  .page-header .crumb { color: var(--studio-muted); font-size: 12px; }
+  .page-header h1 { font-size: 20px; font-weight: 650; line-height: 1.3; }
+  .page-header .subtitle { color: var(--studio-muted); font-size: 13px; }
+  .header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px; border: 1px solid var(--studio-border); border-radius: 999px;
+    color: var(--studio-muted); font-size: 12px; white-space: nowrap;
+  }
+  .badge-prototype { border-color: color-mix(in srgb, var(--studio-warning) 45%, var(--studio-border)); color: var(--studio-warning); }
+
+  .theme-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    min-block-size: 32px; padding: 4px 12px;
+    border: 1px solid var(--studio-control-border); border-radius: 6px;
+    background: var(--studio-card); color: var(--studio-text);
+    font: inherit; font-size: 13px; cursor: pointer;
+  }
+  .theme-toggle:hover { background: var(--studio-active); }
+  .theme-toggle .icon-moon { display: none; }
+  .theme-toggle[aria-pressed="true"] .icon-sun { display: none; }
+  .theme-toggle[aria-pressed="true"] .icon-moon { display: block; }
+  :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+  /* Workspace: palette | canvas | inspector. Rule: Layout and theme. */
+  .workspace {
+    container: workspace / inline-size;
+    min-inline-size: 0;
+    border: 1px solid var(--studio-border);
+    border-radius: 12px;
+    background: var(--studio-card);
+    overflow: hidden;
+  }
+  .workspace-grid {
+    display: grid;
+    grid-template-columns: 10.5rem minmax(0, 1fr) 19.5rem;
+    grid-template-areas: "palette canvas inspector";
+    block-size: 100%;
+    min-block-size: 34rem;
+  }
+  .panel { min-inline-size: 0; padding: var(--pad-panel); }
+  .panel-title { font-size: 13px; font-weight: 650; }
+  .panel-note { margin-block-start: 4px; color: var(--studio-muted); font-size: 12px; }
+
+  /* Palette (reference only) */
+  .palette { grid-area: palette; }
+  .palette ul { display: grid; gap: 6px; margin-block-start: 12px; }
+  .palette li {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--studio-border); border-radius: 6px;
+    background: var(--studio-bg);
+    cursor: default;
+  }
+  .palette li .role-icon { grid-row: span 2; }
+  .palette li strong { font-size: 13px; font-weight: 600; }
+  .palette li span.hint { color: var(--studio-muted); font-size: 11px; line-height: 1.3; }
+
+  .role-icon {
+    display: inline-grid; place-items: center; flex: none;
+    inline-size: 24px; block-size: 24px; border-radius: 5px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent);
+  }
+
+  /* Canvas */
+  .canvas {
+    grid-area: canvas;
+    display: grid; grid-template-rows: auto minmax(0, 1fr);
+    min-inline-size: 0;
+    border-inline: 1px solid var(--studio-border);
+  }
+  .canvas-header {
+    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px;
+    padding: 12px var(--pad-panel);
+    border-block-end: 1px solid var(--studio-border);
+  }
+  .canvas-header code { color: var(--studio-muted); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--studio-muted); font-size: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { inline-size: 18px; block-size: 10px; border-radius: 3px; border: 1px solid var(--studio-muted); }
+  .swatch-live { border-style: dashed; }
+
+  .viewport {
+    container: canvas / inline-size;
+    min-inline-size: 0;
+    overflow: auto;
+    background-color: var(--studio-bg);
+    background-image: radial-gradient(circle, var(--definition-dot) 1px, transparent 1px);
+    background-size: 16px 16px;
+  }
+
+  /* Graph: horizontal by default. JS reads --flow to draw wires. */
+  .graph {
+    --flow: horizontal;
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(8.5rem, 11.5rem));
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      "signal route action state"
+      "signal route action reply";
+    column-gap: 4.75rem;
+    row-gap: 20px;
+    align-items: center;
+    justify-content: center;
+    min-block-size: 100%;
+    padding: 48px 24px;
+  }
+  .wires { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; overflow: visible; pointer-events: none; }
+  .wires path { fill: none; stroke: var(--definition-wire); stroke-width: 2; }
+  .wires path.is-active { stroke: var(--selected-accent, var(--studio-text)); stroke-width: 2.5; }
+  .wires circle { fill: var(--definition-wire); }
+  .wire-label {
+    position: absolute; z-index: 2; translate: -50% -50%;
+    padding: 1px 6px; border: 1px solid var(--studio-border); border-radius: 999px;
+    background: var(--studio-card); color: var(--studio-muted);
+    font: 11px/1.4 var(--font-mono); white-space: nowrap; pointer-events: none;
+  }
+
+  /* Node */
+  .node {
+    position: relative; z-index: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "head head"
+      "name name"
+      "body body"
+      "pin  pout";
+    align-content: start;
+    gap: 0;
+    min-inline-size: 0;
+    padding: var(--pad-node);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--studio-border));
+    border-radius: 8px;
+    background: var(--studio-card);
+    color: var(--studio-text);
+    box-shadow: 0 4px 12px rgb(0 0 0 / 8%);
+    font: inherit; text-align: start;
+    cursor: pointer;
+  }
+  .node-chain { min-block-size: 10.5rem; }
+  .node:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--studio-border)); }
+  .node[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--studio-card));
+    box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  .node:focus-visible { outline: 2px dashed var(--focus-ring); outline-offset: 7px; }
+
+  .node[data-role="signal"] { grid-area: signal; }
+  .node[data-role="route"]  { grid-area: route; }
+  .node[data-role="action"] { grid-area: action; }
+  .node[data-role="state"]  { grid-area: state; }
+  .node[data-role="reply"]  { grid-area: reply; }
+
+  .node-head { grid-area: head; display: flex; align-items: center; gap: 6px; color: var(--accent); font-size: 12px; font-weight: 650; }
+  .node-selected-tag {
+    display: none; margin-inline-start: auto;
+    padding: 0 6px; border-radius: 999px;
+    background: var(--accent); color: var(--studio-bg);
+    font-size: 10px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase;
+  }
+  .node[aria-pressed="true"] .node-selected-tag { display: inline-block; }
+  .node-name { grid-area: name; margin-block: 8px 4px; font-size: 13px; font-weight: 650; line-height: 1.35; }
+  .node-name code { font-size: 12.5px; }
+  .node-body { grid-area: body; display: grid; gap: 3px; color: var(--studio-muted); font-size: 12px; line-height: 1.45; }
+  .node-body code { color: var(--studio-text); }
+  .kv { display: flex; flex-wrap: wrap; gap: 0 6px; }
+  .kv > span:first-child { color: var(--studio-muted); }
+
+  .read-row { display: flex; align-items: center; gap: 6px; margin-block-start: 4px; }
+  .read-row::before {
+    content: ""; inline-size: 8px; block-size: 8px; flex: none;
+    border: 2px solid var(--role-state); border-radius: 50%;
+  }
+  .tag-definition {
+    padding: 0 5px; border: 1px solid var(--studio-muted); border-radius: 4px; font-size: 10.5px;
+  }
+  .live-slot {
+    margin-block-start: 4px; padding: 2px 6px;
+    border: 1px dashed var(--studio-muted); border-radius: 4px;
+    font-size: 11px;
+  }
+
+  /* Ports. Rule: inputs on the leading edge, outputs on the trailing edge. */
+  .port {
+    position: relative; display: flex; align-items: center; gap: 6px;
+    margin-block-start: 10px; padding-block-start: 8px;
+    border-block-start: 1px solid var(--studio-border);
+    color: var(--studio-muted); font: 11px/1.3 var(--font-mono);
+  }
+  .port-in { grid-area: pin; justify-content: flex-start; }
+  .port-out { grid-area: pout; justify-content: flex-end; text-align: end; }
+  .node:not(:has(.port-in)) .port-out,
+  .node:not(:has(.port-out)) .port-in { grid-column: 1 / -1; }
+  .port-dot {
+    position: absolute; inset-block-start: calc(50% + 4px);
+    inline-size: 10px; block-size: 10px;
+    border: 2px solid var(--accent); border-radius: 50%;
+    background: var(--studio-card);
+  }
+  .port-in .port-dot  { inset-inline-start: calc(-1 * var(--pad-node)); translate: -55% -50%; }
+  .port-out .port-dot { inset-inline-end: calc(-1 * var(--pad-node)); translate: 55% -50%; }
+
+  /* Inspector */
+  .inspector { grid-area: inspector; overflow: auto; }
+  .insp-card {
+    margin-block-start: 12px; padding: 12px;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--studio-border));
+    border-radius: 8px; background: var(--studio-bg);
+  }
+  .insp-role { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 12px; font-weight: 650; }
+  .insp-name { margin-block: 8px 4px; font-size: 14px; font-weight: 650; }
+  .insp-summary { color: var(--studio-muted); font-size: 12.5px; }
+  .insp-section { padding-block: 12px; }
+  .insp-section + .insp-section { border-block-start: 1px solid var(--studio-border); }
+  .insp-section h3 { margin-block-end: 6px; color: var(--studio-muted); font-size: 11px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; }
+  .insp-section dl { display: grid; gap: 8px; }
+  .insp-section dt { color: var(--studio-muted); font-size: 12px; }
+  .insp-section dd { font-size: 13px; }
+  .insp-section dd .note { display: block; color: var(--studio-muted); font-size: 12px; }
+  .fields { inline-size: 100%; border-collapse: collapse; font-size: 12px; }
+  .fields th { padding: 0 8px 4px 0; color: var(--studio-muted); font-weight: 500; text-align: start; }
+  .fields td { padding: 4px 8px 4px 0; border-block-start: 1px solid var(--studio-border); vertical-align: top; }
+  .fields td:first-child { font-family: var(--font-mono); }
+
+  .page-footer { color: var(--studio-muted); font-size: 12px; }
+  .page-footer details { margin-block-start: 4px; }
+  .page-footer summary { cursor: pointer; inline-size: fit-content; }
+  .page-footer ul { margin-block-start: 4px; padding-inline-start: 16px; list-style: disc; }
+  .page-footer a { color: var(--studio-info); }
+
+  /* Medium: inspector moves below the canvas. */
+  @container workspace (max-width: 76rem) {
+    .workspace-grid {
+      grid-template-columns: 10.5rem minmax(0, 1fr);
+      grid-template-areas: "palette canvas" "inspector inspector";
+    }
+    .inspector { border-block-start: 1px solid var(--studio-border); overflow: visible; }
+    .insp-sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr)); column-gap: 24px; }
+    .insp-section + .insp-section { border-block-start: 0; }
+  }
+
+  /* Narrow: palette above the canvas, inspector below. */
+  @container workspace (max-width: 52rem) {
+    .workspace-grid {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "palette" "canvas" "inspector";
+      min-block-size: 0;
+    }
+    .canvas { border-inline: 0; border-block-start: 1px solid var(--studio-border); }
+    .palette ul { display: flex; flex-wrap: wrap; }
+    .palette li { grid-template-columns: auto auto; }
+    .palette li .role-icon { grid-row: auto; }
+    .palette li span.hint { display: none; }
+  }
+
+  /* Stacked flow: top to bottom, both outputs side by side. */
+  @container canvas (max-width: 54rem) {
+    .graph {
+      --flow: vertical;
+      grid-template-columns: repeat(2, minmax(0, 13rem));
+      grid-template-rows: none;
+      grid-template-areas:
+        "signal signal"
+        "route  route"
+        "action action"
+        "state  reply";
+      column-gap: 12px;
+      row-gap: 40px;
+      align-items: stretch;
+      padding: 32px 12px 40px;
+    }
+    .graph > .node-chain { justify-self: center; inline-size: min(100%, 22rem); min-block-size: 0; }
+    .node[data-role="state"], .node[data-role="reply"] { margin-block-start: 28px; }
+    .node {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "pin" "head" "name" "body" "pout";
+    }
+    .port { justify-content: center; text-align: center; }
+    .port-in { margin-block: 0 8px; padding-block: 0 8px; border-block: 0 1px solid var(--studio-border); }
+    .port-dot { inset-inline: 50% auto; }
+    .port-in .port-dot { inset-block-start: calc(-1 * var(--pad-node)); inset-inline-start: 50%; translate: -50% -55%; }
+    .port-out .port-dot { inset-block: auto calc(-1 * var(--pad-node)); inset-inline-end: auto; translate: -50% 55%; }
+  }
+
+  @media (max-width: 40rem) {
+    :root { --pad-page: 12px; }
+    .page { gap: 12px; }
+    .page-header h1 { font-size: 18px; }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .node, .wires path { transition: border-color 120ms, box-shadow 120ms, stroke 120ms; }
+  }
+
+  @media (forced-colors: active) {
+    .node[aria-pressed="true"] { outline: 3px solid Highlight; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-signal" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><path d="M4 7h14M15 4l3 3-3 3M20 17H6M9 14l-3 3 3 3"/></symbol>
+  <symbol id="i-action" viewBox="0 0 24 24"><path d="M7 5v14l11-7z"/></symbol>
+  <symbol id="i-state" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></symbol>
+  <symbol id="i-reply" viewBox="0 0 24 24"><path d="M21 3 3 10.5l7 2.5 2.5 7z M21 3 10 13"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></symbol>
+</svg>
+
+<div class="page">
+  <header class="page-header">
+    <div>
+      <p class="crumb">Studio · Agents · <code>demo-counter</code></p>
+      <h1>Demo counter</h1>
+      <p class="subtitle">Agent definition · Counts increments sent from Studio.</p>
+    </div>
+    <div class="header-actions">
+      <span class="badge badge-prototype">Prototype</span>
+      <span class="badge" title="Change this label when you change one rule">Revision A · baseline rules</span>
+      <button type="button" id="theme-toggle" class="theme-toggle" aria-pressed="false">
+        <svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun"/></svg>
+        <svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon"/></svg>
+        Light theme
+      </button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <div class="workspace-grid">
+      <aside class="panel palette" aria-labelledby="palette-title">
+        <h2 id="palette-title" class="panel-title">Node palette</h2>
+        <p class="panel-note">Node types for the builder.</p>
+        <ul>
+          <li data-role="signal"><span class="role-icon"><svg class="icon" aria-hidden="true"><use href="#i-signal"/></svg></span><strong>Signal</strong><span class="hint">Input type and fields</span></li>
+          <li data-role="route"><span class="role-icon"><svg class="icon" aria-hidden="true"><use href="#i-route"/></svg></span><strong>Route</strong><span class="hint">Match and target</span></li>
+          <li data-role="action"><span class="role-icon"><svg class="icon" aria-hidden="true"><use href="#i-action"/></svg></span><strong>Action</strong><span class="hint">Read state, return output</span></li>
+          <li data-role="state"><span class="role-icon"><svg class="icon" aria-hidden="true"><use href="#i-state"/></svg></span><strong>State</strong><span class="hint">Field and initial value</span></li>
+          <li data-role="reply"><span class="role-icon"><svg class="icon" aria-hidden="true"><use href="#i-reply"/></svg></span><strong>Reply</strong><span class="hint">Signal type and payload</span></li>
+        </ul>
+      </aside>
+
+      <section class="canvas" aria-labelledby="canvas-title">
+        <header class="canvas-header">
+          <h2 id="canvas-title" class="panel-title">Definition canvas <code>StudioPlayground.DemoCounter</code></h2>
+          <p class="legend">
+            <span><i class="swatch" aria-hidden="true"></i>Definition value</span>
+            <span><i class="swatch swatch-live" aria-hidden="true"></i>Live data: instance page</span>
+          </p>
+        </header>
+        <div class="viewport">
+          <p id="flow-description" class="sr-only">
+            The increment signal goes to a route. The route matches the signal type and runs the
+            increment action. The action reads state.count and returns count. The route uses
+            that output for the state commit and for the demo.counter.updated reply.
+          </p>
+          <div class="graph" id="graph" role="group" aria-label="Agent definition graph" aria-describedby="flow-description">
+            <svg class="wires" id="wires" aria-hidden="true"></svg>
+
+            <button type="button" class="node node-chain" data-role="signal" data-node="signal" aria-pressed="false"
+                    aria-label="Signal: demo.counter.increment" aria-describedby="body-signal">
+              <span class="node-head"><span class="role-icon"><svg class="icon" aria-hidden="true"><use href="#i-signal"/></svg></span>Signal<span class="node-selected-tag">Selected</span></span>
+              <span class="node-name"><code>demo.<wbr>counter.<wbr>increment</code></span>
+              <span class="node-body" id="body-signal">
+                <span><code>amount</code> · integer · 1–10</span>
+                <span class="kv"><span>Default</span><code>1</code></span>
+              </span>
+              <span class="port port-out">payload<span class="port-dot" data-port="signal.out"></span></span>
+            </button>
+
+            <button type="button" class="node node-chain" data-role="route" data-node="route" aria-pressed="false"
+                    aria-label="Route: match signal type" aria-describedby="body-route">
+              <span class="node-head"><span class="role-icon"><svg class="icon" aria-hidden="true"><use href="#i-route"/></svg></span>Route<span class="node-selected-tag">Selected</span></span>
+              <span class="node-name">Match signal type</span>
+              <span class="node-body" id="body-route">
+                <span class="kv"><span>Match</span><code>demo.<wbr>counter.<wbr>increment</code></span>
+                <span class="kv"><span>Run</span><code>increment_<wbr>demo_<wbr>counter</code></span>
+              </span>
+              <span class="port port-in"><span class="port-dot" data-port="route.in"></span>signal</span>
+              <span class="port port-out">payload<span class="port-dot" data-port="route.out"></span></span>
+            </button>
+
+            <button type="button" class="node node-chain" data-role="action" data-node="action" aria-pressed="false"
+                    aria-label="Action: increment_demo_counter" aria-describedby="body-action">
+              <span class="node-head"><span class="role-icon"><svg class="icon" aria-hidden="true"><use href="#i-action"/></svg></span>Action<span class="node-selected-tag">Selected</span></span>
+              <span class="node-name"><code>increment_<wbr>demo_<wbr>counter</code></span>
+              <span class="node-body" id="body-action">
+                <span><code>count = state.<wbr>count + amount</code></span>
+                <span class="read-row">Reads <code>state.<wbr>count</code></span>
+              </span>
+              <span class="port port-in"><span class="port-dot" data-port="action.in"></span>amount</span>
+              <span class="port port-out">count<span class="port-dot" data-port="action.out"></span></span>
+            </button>
+
+            <button type="button" class="node" data-role="state" data-node="state" aria-pressed="false"
+                    aria-label="State: commit count" aria-describedby="body-state">
+              <span class="node-head"><span class="role-icon"><svg class="icon" aria-hidden="true"><use href="#i-state"/></svg></span>State<span class="node-selected-tag">Selected</span></span>
+              <span class="node-name">Commit <code>count</code></span>
+              <span class="node-body" id="body-state">
+                <span>integer · initial <code>0</code> <span class="tag-definition">definition</span></span>
+                <span class="live-slot">Live value: instance page</span>
+              </span>
+              <span class="port port-in"><span class="port-dot" data-port="state.in"></span>count</span>
+            </button>
+
+            <button type="button" class="node" data-role="reply" data-node="reply" aria-pressed="false"
+                    aria-label="Reply: demo.counter.updated" aria-describedby="body-reply">
+              <span class="node-head"><span class="role-icon"><svg class="icon" aria-hidden="true"><use href="#i-reply"/></svg></span>Reply<span class="node-selected-tag">Selected</span></span>
+              <span class="node-name"><code>demo.<wbr>counter.<wbr>updated</code></span>
+              <span class="node-body" id="body-reply">
+                <span class="kv"><span>Payload</span><code>count</code> · integer</span>
+              </span>
+              <span class="port port-in"><span class="port-dot" data-port="reply.in"></span>count</span>
+            </button>
+          </div>
+          <noscript><p class="panel-note" style="padding:16px">Turn on JavaScript to see the wires and the inspector.</p></noscript>
+        </div>
+      </section>
+
+      <aside class="panel inspector" aria-labelledby="inspector-title">
+        <h2 id="inspector-title" class="panel-title">Inspector</h2>
+        <p class="panel-note">Select a node to see its definition.</p>
+        <div id="inspector-body"></div>
+        <p id="selection-status" class="sr-only" aria-live="polite"></p>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="page-footer">
+    <p>Standalone prototype for visual review.</p>
+    <details>
+      <summary>Sources</summary>
+      <ul>
+        <li><a href="../guides/agent-definition-visual-rules.md">Agent definition visual rules</a> (proposed)</li>
+        <li><a href="../../studio_playground/lib/studio_playground/demo_counter.ex">demo_counter.ex</a></li>
+        <li><a href="../../studio_playground/lib/studio_playground/demo_counter/increment.ex">demo_counter/increment.ex</a></li>
+        <li><a href="../../studio_playground/lib/studio_playground/demo_counter/increment_action.ex">demo_counter/increment_action.ex</a></li>
+        <li><a href="../../studio_playground/lib/studio_playground_web/live/definition_mockup_live.ex">definition_mockup_live.ex</a> (earlier canvas)</li>
+      </ul>
+    </details>
+  </footer>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // Definition data from studio_playground/lib/studio_playground/demo_counter*.ex.
+  const NODES = {
+    signal: {
+      role: "Signal", icon: "signal", name: "demo.counter.increment",
+      summary: "Input signal. The route matches this type.",
+      fieldsTitle: "Fields", defaultLabel: "Default",
+      fields: [["amount", "integer", "min 1, max 10", "1"]],
+      sections: [
+        ["Definition", [["Module", "StudioPlayground.DemoCounter.Increment"], ["Default source", "/studio-playground"]]],
+        ["Produces", [["Payload", "%{amount: integer}"]]],
+        ["Output to", [["Route", null, "Match signal type"]]]
+      ]
+    },
+    route: {
+      role: "Route", icon: "route", name: "Match signal type",
+      summary: "Runs the action when the signal type matches.",
+      sections: [
+        ["Match", [["Signal type", "demo.counter.increment"], ["Signal source", "/studio-playground/demo-counter", "Declared in routes"]]],
+        ["Target", [["Action", "increment_demo_counter"], ["Passes", "payload", "To the action input"]]],
+        ["Produces", [["Reply", "demo.counter.updated", "from: output()"]]],
+        ["Output to", [["State commit", "count"], ["Reply payload", "count"]]]
+      ]
+    },
+    action: {
+      role: "Action", icon: "action", name: "increment_demo_counter",
+      summary: "Adds amount to the current count.",
+      fieldsTitle: "Input fields", defaultLabel: "Default",
+      fields: [["amount", "integer", "min 1, max 10", "none"]],
+      sections: [
+        ["Definition", [["Module", "StudioPlayground.DemoCounter.IncrementAction"]]],
+        ["Reads", [["Agent state", "state.count", "integer"]]],
+        ["Produces", [["Result", "count = state.count + amount"], ["Output schema", "%{count: integer}"]]],
+        ["Output to", [["State commit", "count"], ["Reply payload", "count"]]]
+      ]
+    },
+    state: {
+      role: "State", icon: "state", name: "Commit count",
+      summary: "Agent state field. The route commits the action output here.",
+      fieldsTitle: "Schema", defaultLabel: "Initial",
+      fields: [["count", "integer", "—", "0"]],
+      sections: [
+        ["Values", [["Initial value", "0", "From the definition"], ["Live value", null, "See the instance page."]]],
+        ["Read by", [["Action", "increment_demo_counter", "As state.count"]]],
+        ["Written by", [["State commit", "count", "From the action output"]]]
+      ]
+    },
+    reply: {
+      role: "Reply", icon: "reply", name: "demo.counter.updated",
+      summary: "Reply signal. The route builds it from the action output.",
+      fieldsTitle: "Payload", defaultLabel: "Default",
+      fields: [["count", "integer", "—", "none"]],
+      sections: [
+        ["Definition", [["Declared in", "reply(\"demo.counter.updated\", from: output())", "Route block"]]],
+        ["Reads", [["Action output", "count"]]]
+      ]
+    }
+  };
+
+  // Wires attach to port dots. A shared source port makes the branch.
+  const EDGES = [
+    { from: "signal.out", to: "route.in" },
+    { from: "route.out", to: "action.in" },
+    { from: "action.out", to: "state.in", label: "commit" },
+    { from: "action.out", to: "reply.in", label: "reply" }
+  ];
+
+  const root = document.documentElement;
+  const graph = document.getElementById("graph");
+  const svg = document.getElementById("wires");
+  const nodes = [...graph.querySelectorAll(".node")];
+  const inspector = document.getElementById("inspector-body");
+  const status = document.getElementById("selection-status");
+  const toggle = document.getElementById("theme-toggle");
+  const SVGNS = "http://www.w3.org/2000/svg";
+
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  // Let identifiers wrap after ".", "_", or "/".
+  const wrap = (s) => esc(s).replace(/([._/])/g, "$1<wbr>");
+
+  // Theme
+  function setTheme(theme) {
+    root.dataset.theme = theme;
+    toggle.setAttribute("aria-pressed", String(theme === "light"));
+  }
+  toggle.addEventListener("click", () => setTheme(root.dataset.theme === "light" ? "dark" : "light"));
+
+  // Inspector
+  function renderInspector(key) {
+    const n = NODES[key];
+    let html = `<div class="insp-card" data-role="${key}">
+      <p class="insp-role"><span class="role-icon"><svg class="icon" aria-hidden="true"><use href="#i-${n.icon}"/></svg></span>${esc(n.role)}</p>
+      <p class="insp-name">${n.name.includes(".") || n.name.includes("_") ? `<code>${wrap(n.name)}</code>` : esc(n.name)}</p>
+      <p class="insp-summary">${esc(n.summary)}</p>
+    </div><div class="insp-sections">`;
+    if (n.fields) {
+      html += `<section class="insp-section"><h3>${esc(n.fieldsTitle)}</h3><table class="fields">
+        <thead><tr><th scope="col">Field</th><th scope="col">Type</th><th scope="col">Rule</th><th scope="col">${esc(n.defaultLabel)}</th></tr></thead><tbody>
+        ${n.fields.map((f) => `<tr>${f.map((v, i) => `<td>${i === 3 && v !== "none" ? `<code>${esc(v)}</code>` : esc(v)}</td>`).join("")}</tr>`).join("")}
+        </tbody></table></section>`;
+    }
+    for (const [title, rows] of n.sections) {
+      html += `<section class="insp-section"><h3>${esc(title)}</h3><dl>${rows.map(([k, v, note]) =>
+        `<div><dt>${esc(k)}</dt><dd>${v == null ? "" : `<code>${wrap(v)}</code>`}${note ? `<span class="note">${esc(note)}</span>` : ""}</dd></div>`
+      ).join("")}</dl></section>`;
+    }
+    inspector.innerHTML = html + "</div>";
+  }
+
+  function select(key, announce = true) {
+    if (!Object.hasOwn(NODES, key)) return;
+    for (const el of nodes) el.setAttribute("aria-pressed", String(el.dataset.node === key));
+    const el = graph.querySelector(`[data-node="${key}"]`);
+    graph.style.setProperty("--selected-accent", `var(--role-${key})`);
+    renderInspector(key);
+    svg.querySelectorAll("path").forEach((p) => p.classList.toggle("is-active", p.dataset.nodes.split(" ").includes(key)));
+    if (announce) status.textContent = `Selected ${NODES[key].role}: ${NODES[key].name}`;
+    current = key;
+    return el;
+  }
+
+  // Buttons give Enter and Space activation by default.
+  nodes.forEach((el) => el.addEventListener("click", () => select(el.dataset.node)));
+
+  // Wires
+  const labels = [];
+  function center(port) {
+    const g = graph.getBoundingClientRect();
+    const r = graph.querySelector(`[data-port="${port}"]`).getBoundingClientRect();
+    return { x: r.left + r.width / 2 - g.left, y: r.top + r.height / 2 - g.top };
+  }
+
+  function drawWires() {
+    const vertical = getComputedStyle(graph).getPropertyValue("--flow").trim() === "vertical";
+    svg.replaceChildren();
+    labels.splice(0).forEach((l) => l.remove());
+    const forks = new Set();
+    for (const e of EDGES) {
+      const a = center(e.from), b = center(e.to);
+      const c1 = { ...a }, c2 = { ...b };
+      if (vertical) {
+        const d = Math.max(24, Math.abs(b.y - a.y) / 2);
+        c1.y += d; c2.y -= d;
+      } else {
+        const d = Math.max(28, Math.abs(b.x - a.x) / 2);
+        c1.x += d; c2.x -= d;
+      }
+      const path = document.createElementNS(SVGNS, "path");
+      path.setAttribute("d", `M${a.x},${a.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${b.x},${b.y}`);
+      path.dataset.nodes = `${e.from.split(".")[0]} ${e.to.split(".")[0]}`;
+      if (current && path.dataset.nodes.split(" ").includes(current)) path.classList.add("is-active");
+      svg.append(path);
+      if (EDGES.filter((x) => x.from === e.from).length > 1) forks.add(e.from);
+      if (e.label) {
+        // Bezier point at t = 0.5.
+        const mx = (a.x + 3 * c1.x + 3 * c2.x + b.x) / 8;
+        const my = (a.y + 3 * c1.y + 3 * c2.y + b.y) / 8;
+        const span = document.createElement("span");
+        span.className = "wire-label";
+        span.textContent = e.label;
+        span.style.left = `${mx}px`;
+        span.style.top = `${my}px`;
+        graph.append(span);
+        labels.push(span);
+      }
+    }
+    // Branch point marker just after the shared output port.
+    for (const port of forks) {
+      const p = center(port);
+      const dot = document.createElementNS(SVGNS, "circle");
+      dot.setAttribute("cx", vertical ? p.x : p.x + 14);
+      dot.setAttribute("cy", vertical ? p.y + 14 : p.y);
+      dot.setAttribute("r", 3);
+      svg.append(dot);
+    }
+  }
+
+  let current = null;
+  let frame = 0;
+  const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(drawWires); };
+  new ResizeObserver(schedule).observe(graph);
+  window.addEventListener("resize", schedule);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule);
+
+  // Comparison options: ?node=action&theme=light
+  const params = new URLSearchParams(location.search);
+  const theme = params.get("theme");
+  setTheme(theme === "light" || theme === "dark" ? theme
+    : (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"));
+  const node = params.get("node");
+  select(Object.hasOwn(NODES, node) ? node : "action", false);
+  drawWires();
+})();
+</script>
+</body>
+</html>

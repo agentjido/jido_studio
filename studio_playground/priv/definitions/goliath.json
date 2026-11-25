@@ -1,0 +1,1236 @@
+{
+  "description": "Coordinates incident intake, evidence collection, review, and audit.",
+  "featured": [
+    {
+      "label": "Request review",
+      "signal": "goliath.review.requested",
+      "summary": "Build a review packet and wait for a decision."
+    },
+    {
+      "label": "Open incident",
+      "signal": "goliath.incident.open",
+      "summary": "Write an incident record and return a receipt."
+    },
+    {
+      "label": "Collect evidence",
+      "signal": "goliath.evidence.collect",
+      "summary": "Queue the request and broadcast it through the audit bus."
+    },
+    {
+      "label": "Collect sources",
+      "signal": "goliath.sources.collect",
+      "summary": "Read the GitHub pull request and Zendesk ticket in parallel."
+    }
+  ],
+  "flows": {
+    "Jido.Lab.Goliath.CollectSources": {
+      "components": [
+        {
+          "handler": null,
+          "inputs": [],
+          "kind": "parallel",
+          "level": 0,
+          "name": "provider_reads",
+          "needs": [],
+          "options": [
+            {
+              "handler": {
+                "kind": "action",
+                "target": "Jido.Connect.GitHub.Actions.GetPullRequest"
+              },
+              "inputs": [
+                {
+                  "name": "pull_number",
+                  "reference": {
+                    "component": null,
+                    "path": [
+                      "pull_number"
+                    ],
+                    "source": "input"
+                  },
+                  "value": "input.pull_number"
+                },
+                {
+                  "name": "repo",
+                  "reference": {
+                    "component": null,
+                    "path": [
+                      "repo"
+                    ],
+                    "source": "input"
+                  },
+                  "value": "input.repo"
+                }
+              ],
+              "name": "pull_request"
+            },
+            {
+              "handler": {
+                "kind": "action",
+                "target": "Jido.Connect.Zendesk.Actions.GetTicket"
+              },
+              "inputs": [
+                {
+                  "name": "ticket_id",
+                  "reference": {
+                    "component": null,
+                    "path": [
+                      "ticket_id"
+                    ],
+                    "source": "input"
+                  },
+                  "value": "input.ticket_id"
+                }
+              ],
+              "name": "support_ticket"
+            }
+          ]
+        }
+      ],
+      "name": "goliath_collect_sources",
+      "output": [
+        {
+          "name": "pull_request",
+          "reference": {
+            "component": "provider_reads",
+            "path": [
+              0,
+              "value"
+            ],
+            "source": "result"
+          },
+          "value": "provider_reads.result.0.value"
+        },
+        {
+          "name": "ticket",
+          "reference": {
+            "component": "provider_reads",
+            "path": [
+              1,
+              "value"
+            ],
+            "source": "result"
+          },
+          "value": "provider_reads.result.1.value"
+        }
+      ]
+    },
+    "Jido.Lab.Goliath.Review": {
+      "components": [
+        {
+          "handler": {
+            "kind": "action",
+            "target": "Inline action"
+          },
+          "inputs": [
+            {
+              "name": "decisions",
+              "reference": {
+                "component": "recall_decisions",
+                "path": [
+                  "recall"
+                ],
+                "source": "result"
+              },
+              "value": "recall_decisions.result.recall"
+            },
+            {
+              "name": "id",
+              "reference": {
+                "component": null,
+                "path": [
+                  "incident_id"
+                ],
+                "source": "input"
+              },
+              "value": "input.incident_id"
+            },
+            {
+              "name": "incident",
+              "reference": {
+                "component": "load_incident",
+                "path": [
+                  "result"
+                ],
+                "source": "result"
+              },
+              "value": "load_incident.result.result"
+            },
+            {
+              "name": "priority",
+              "reference": {
+                "component": "priority",
+                "path": [],
+                "source": "result"
+              },
+              "value": "priority.result"
+            },
+            {
+              "name": "runbook",
+              "reference": {
+                "component": "recall_runbook",
+                "path": [
+                  "recall"
+                ],
+                "source": "result"
+              },
+              "value": "recall_runbook.result.recall"
+            },
+            {
+              "name": "sources",
+              "reference": {
+                "component": "collect_sources",
+                "path": [],
+                "source": "result"
+              },
+              "value": "collect_sources.result"
+            }
+          ],
+          "kind": "call",
+          "level": 1,
+          "name": "assemble_packet",
+          "needs": [
+            "collect_sources",
+            "load_incident",
+            "priority",
+            "recall_decisions",
+            "recall_runbook"
+          ],
+          "options": []
+        },
+        {
+          "handler": {
+            "kind": "flow",
+            "target": "Jido.Lab.Goliath.CollectSources"
+          },
+          "inputs": [
+            {
+              "name": "pull_number",
+              "reference": {
+                "component": null,
+                "path": [
+                  "pull_number"
+                ],
+                "source": "input"
+              },
+              "value": "input.pull_number"
+            },
+            {
+              "name": "repo",
+              "reference": {
+                "component": null,
+                "path": [
+                  "repo"
+                ],
+                "source": "input"
+              },
+              "value": "input.repo"
+            },
+            {
+              "name": "ticket_id",
+              "reference": {
+                "component": null,
+                "path": [
+                  "ticket_id"
+                ],
+                "source": "input"
+              },
+              "value": "input.ticket_id"
+            }
+          ],
+          "kind": "call",
+          "level": 0,
+          "name": "collect_sources",
+          "needs": [],
+          "options": []
+        },
+        {
+          "handler": null,
+          "inputs": [],
+          "kind": "wait",
+          "level": 2,
+          "name": "decision",
+          "needs": [
+            "assemble_packet"
+          ],
+          "options": [
+            {
+              "after_ms": null,
+              "event": "goliath.review.approved",
+              "inputs": [
+                {
+                  "name": "incident_id",
+                  "reference": {
+                    "component": "assemble_packet",
+                    "path": [
+                      "incident_id"
+                    ],
+                    "source": "result"
+                  },
+                  "value": "assemble_packet.result.incident_id"
+                }
+              ],
+              "name": "approved"
+            },
+            {
+              "after_ms": null,
+              "event": "goliath.review.rejected",
+              "inputs": [
+                {
+                  "name": "incident_id",
+                  "reference": {
+                    "component": "assemble_packet",
+                    "path": [
+                      "incident_id"
+                    ],
+                    "source": "result"
+                  },
+                  "value": "assemble_packet.result.incident_id"
+                }
+              ],
+              "name": "rejected"
+            },
+            {
+              "after_ms": 900000,
+              "event": null,
+              "inputs": [],
+              "name": "expired"
+            }
+          ]
+        },
+        {
+          "handler": {
+            "kind": "action",
+            "target": "Jido.Lab.Goliath.Incidents.Jido.GetIncident"
+          },
+          "inputs": [
+            {
+              "name": "id",
+              "reference": {
+                "component": null,
+                "path": [
+                  "incident_id"
+                ],
+                "source": "input"
+              },
+              "value": "input.incident_id"
+            }
+          ],
+          "kind": "call",
+          "level": 0,
+          "name": "load_incident",
+          "needs": [],
+          "options": []
+        },
+        {
+          "handler": null,
+          "inputs": [],
+          "kind": "choice",
+          "level": 0,
+          "name": "priority",
+          "needs": [],
+          "options": [
+            {
+              "condition": "input.severity >= 4",
+              "handler": {
+                "kind": "action",
+                "target": "Jido.Lab.Goliath.ReviewPriority"
+              },
+              "inputs": [
+                {
+                  "name": "queue",
+                  "value": "\"urgent\""
+                }
+              ],
+              "name": "urgent"
+            },
+            {
+              "condition": "input.severity >= 2",
+              "handler": {
+                "kind": "action",
+                "target": "Jido.Lab.Goliath.ReviewPriority"
+              },
+              "inputs": [
+                {
+                  "name": "queue",
+                  "value": "\"expedited\""
+                }
+              ],
+              "name": "expedited"
+            },
+            {
+              "condition": null,
+              "handler": {
+                "kind": "action",
+                "target": "Jido.Lab.Goliath.ReviewPriority"
+              },
+              "inputs": [
+                {
+                  "name": "queue",
+                  "value": "\"standard\""
+                }
+              ],
+              "name": "otherwise"
+            }
+          ]
+        },
+        {
+          "handler": {
+            "kind": "action",
+            "target": "Jido.Memory.Actions.RecallGranted"
+          },
+          "inputs": [
+            {
+              "name": "grant",
+              "value": ":prior_decisions"
+            },
+            {
+              "name": "where",
+              "value": "{incident_id: input.incident_id}"
+            }
+          ],
+          "kind": "call",
+          "level": 0,
+          "name": "recall_decisions",
+          "needs": [],
+          "options": []
+        },
+        {
+          "handler": {
+            "kind": "action",
+            "target": "Jido.Memory.Actions.RecallGranted"
+          },
+          "inputs": [
+            {
+              "name": "grant",
+              "value": ":related_runbooks"
+            },
+            {
+              "name": "where",
+              "value": "{repo: input.repo}"
+            }
+          ],
+          "kind": "call",
+          "level": 0,
+          "name": "recall_runbook",
+          "needs": [],
+          "options": []
+        }
+      ],
+      "name": "goliath_review",
+      "output": [
+        {
+          "name": "decision",
+          "reference": {
+            "component": "decision",
+            "path": [
+              "selected"
+            ],
+            "source": "result"
+          },
+          "value": "decision.result.selected"
+        },
+        {
+          "name": "summary",
+          "reference": {
+            "component": "assemble_packet",
+            "path": [],
+            "source": "result"
+          },
+          "value": "assemble_packet.result"
+        }
+      ]
+    }
+  },
+  "id": null,
+  "initial_state": [
+    {
+      "name": "event_counts",
+      "value": "%{}"
+    },
+    {
+      "name": "evidence",
+      "value": "[]"
+    },
+    {
+      "name": "incident_id",
+      "value": "\"INC-042\""
+    },
+    {
+      "name": "last_event",
+      "value": "nil"
+    },
+    {
+      "name": "phase",
+      "value": ":intake"
+    },
+    {
+      "name": "severity",
+      "value": "3"
+    }
+  ],
+  "name": "goliath",
+  "resources": [
+    {
+      "name": "Chat",
+      "items": [
+        {
+          "name": "incident_room",
+          "detail": "Telegram"
+        },
+        {
+          "name": "review_desk",
+          "detail": "Slack"
+        }
+      ]
+    },
+    {
+      "name": "Connect",
+      "items": [
+        {
+          "name": "changes",
+          "detail": "GitHub"
+        },
+        {
+          "name": "support",
+          "detail": "Zendesk"
+        },
+        {
+          "name": "documentation",
+          "detail": "Notion"
+        }
+      ]
+    },
+    {
+      "name": "Harness",
+      "items": [
+        {
+          "name": "codex",
+          "detail": "read-only"
+        }
+      ]
+    },
+    {
+      "name": "Realms",
+      "items": [
+        {
+          "name": "evidence_archive",
+          "detail": "files"
+        },
+        {
+          "name": "review_workspace",
+          "detail": "program"
+        },
+        {
+          "name": "decision_archive",
+          "detail": "files"
+        }
+      ]
+    },
+    {
+      "name": "Memory",
+      "items": [
+        {
+          "name": "decisions",
+          "detail": "32 entries"
+        },
+        {
+          "name": "runbooks",
+          "detail": "External store"
+        },
+        {
+          "name": "working_notes",
+          "detail": "64 entries"
+        }
+      ]
+    },
+    {
+      "name": "Incident records",
+      "items": [
+        {
+          "name": "lookup",
+          "detail": "Jido.Lab.Goliath.Incidents.Jido.GetIncident"
+        }
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.Incident.Jido.Open"
+      },
+      "reply": {
+        "from": "output.result",
+        "signal": "goliath.incident.open_receipt"
+      },
+      "signal": "goliath.incident.open",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.Incidents.Jido.GetIncident"
+      },
+      "reply": {
+        "from": "output.result",
+        "signal": "goliath.incident.found"
+      },
+      "signal": "goliath.incident.lookup",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.Incident.Jido.ChangeStatus"
+      },
+      "reply": null,
+      "signal": "goliath.incident.change_status",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "goliath.incident.opened",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "goliath.incident.status_changed",
+      "state": "output"
+    },
+    {
+      "defaults": [
+        {
+          "name": "incident_id",
+          "value": "\"INC-042\""
+        }
+      ],
+      "handler": {
+        "kind": "action",
+        "target": "Inline action"
+      },
+      "reply": {
+        "from": "output",
+        "signal": "goliath.evidence.queued"
+      },
+      "signal": "goliath.evidence.collect",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Inline action"
+      },
+      "reply": {
+        "from": "output.receipt",
+        "signal": "goliath.evidence.recorded"
+      },
+      "signal": "goliath.evidence.collected",
+      "state": "output.next_state"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "goliath.audit.recorded",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "goliath.audit.scheduled",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "goliath.review.heartbeat",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "flow",
+        "target": "Jido.Lab.Goliath.Review"
+      },
+      "reply": {
+        "from": "output",
+        "signal": "goliath.review.completed"
+      },
+      "signal": "goliath.review.requested",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Inline action"
+      },
+      "reply": null,
+      "signal": "goliath.memory.remember_decision",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Inline action"
+      },
+      "reply": null,
+      "signal": "goliath.memory.forget_note",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "flow",
+        "target": "Jido.Lab.Goliath.CollectSources"
+      },
+      "reply": {
+        "from": "output",
+        "signal": "goliath.sources.collected"
+      },
+      "signal": "goliath.sources.collect",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Connect.GitHub.Actions.GetPullRequest"
+      },
+      "reply": null,
+      "signal": "github.pull_request.updated",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "github.webhook.pull_request",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Connect.GitHub.Actions.ListPullRequestReviews"
+      },
+      "reply": null,
+      "signal": "goliath.sources.pull_request_reviews",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Connect.Zendesk.Actions.GetTicket"
+      },
+      "reply": null,
+      "signal": "zendesk.ticket.changed",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "zendesk.ticket.comment.changed",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Connect.Zendesk.Actions.ListTicketComments"
+      },
+      "reply": null,
+      "signal": "goliath.sources.ticket_comments",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Connect.Notion.Actions.GetPage"
+      },
+      "reply": null,
+      "signal": "goliath.sources.runbook",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Connect.Notion.Actions.ListBlockChildren"
+      },
+      "reply": null,
+      "signal": "goliath.sources.runbook_blocks",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "transform",
+        "target": "Jido.Lab.Goliath (inline)"
+      },
+      "reply": null,
+      "signal": "jido.chat.message.received",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "jido.chat.message.updated",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Chat.Plugin.Execute"
+      },
+      "reply": null,
+      "signal": "jido.chat.command.send_message",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Chat.Plugin.Execute"
+      },
+      "reply": null,
+      "signal": "jido.chat.command.edit_message",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Chat.Plugin.Execute"
+      },
+      "reply": null,
+      "signal": "jido.chat.command.add_reaction",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "jido.chat.command.send_message.completed",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "jido.chat.command.send_message.failed",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Harness.Plugin.Execute"
+      },
+      "reply": null,
+      "signal": "jido.harness.command.prompt",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Harness.Plugin.Execute"
+      },
+      "reply": null,
+      "signal": "jido.harness.command.interrupt",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Harness.Plugin.Execute"
+      },
+      "reply": null,
+      "signal": "jido.harness.command.respond_approval",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "jido.harness.turn.*",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "jido.harness.approval.requested",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Lab.Goliath.RecordEvent"
+      },
+      "reply": null,
+      "signal": "jido.harness.error.command",
+      "state": "output"
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.RunAction"
+      },
+      "reply": null,
+      "signal": "realm.program.run",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.FileAction"
+      },
+      "reply": null,
+      "signal": "realm.file.create",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.FileAction"
+      },
+      "reply": null,
+      "signal": "realm.file.delete",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.FileAction"
+      },
+      "reply": null,
+      "signal": "realm.file.delete_revision",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.FileAction"
+      },
+      "reply": null,
+      "signal": "realm.file.edit",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.FileAction"
+      },
+      "reply": null,
+      "signal": "realm.file.edit_revision",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.FileAction"
+      },
+      "reply": null,
+      "signal": "realm.file.list",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.FileAction"
+      },
+      "reply": null,
+      "signal": "realm.file.mkdir",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.FileAction"
+      },
+      "reply": null,
+      "signal": "realm.file.read",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.FileAction"
+      },
+      "reply": null,
+      "signal": "realm.file.read_revision",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.FileAction"
+      },
+      "reply": null,
+      "signal": "realm.file.reconcile",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.FileAction"
+      },
+      "reply": null,
+      "signal": "realm.file.rename",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.FileAction"
+      },
+      "reply": null,
+      "signal": "realm.file.search",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.WorkspaceAction"
+      },
+      "reply": null,
+      "signal": "realm.artifact.publish",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.WorkspaceAction"
+      },
+      "reply": null,
+      "signal": "realm.close",
+      "state": null
+    },
+    {
+      "defaults": [],
+      "handler": {
+        "kind": "action",
+        "target": "Jido.Realm.WorkspaceAction"
+      },
+      "reply": null,
+      "signal": "realm.open",
+      "state": null
+    }
+  ],
+  "schedules": [
+    {
+      "name": "review_heartbeat",
+      "signal": "goliath.review.heartbeat",
+      "timing": {
+        "milliseconds": 60000,
+        "kind": "every"
+      }
+    },
+    {
+      "name": "daily_audit",
+      "signal": "goliath.audit.scheduled",
+      "timing": {
+        "kind": "cron",
+        "expression": "0 9 * * 1-5",
+        "timezone": "Etc/UTC"
+      }
+    }
+  ],
+  "source": "/lab/goliath",
+  "topology": {
+    "connections": [
+      {
+        "delivery": "single",
+        "from": {
+          "kind": "agent",
+          "name": "root"
+        },
+        "signal": "goliath.evidence.collect",
+        "to": {
+          "kind": "bus",
+          "name": "goliath_audit"
+        }
+      },
+      {
+        "delivery": "broadcast",
+        "from": {
+          "kind": "bus",
+          "name": "goliath_audit"
+        },
+        "signal": "goliath.evidence.collect",
+        "to": {
+          "kind": "agent",
+          "name": "evidence_workers"
+        }
+      },
+      {
+        "delivery": "single",
+        "from": {
+          "kind": "agent",
+          "name": "evidence_workers"
+        },
+        "signal": "goliath.evidence.collected",
+        "to": {
+          "kind": "agent",
+          "name": "root"
+        }
+      },
+      {
+        "delivery": "single",
+        "from": {
+          "kind": "agent",
+          "name": "evidence_workers"
+        },
+        "signal": "goliath.evidence.collected",
+        "to": {
+          "kind": "agent",
+          "name": "audit"
+        }
+      },
+      {
+        "delivery": "single",
+        "from": {
+          "kind": "agent",
+          "name": "audit"
+        },
+        "signal": "goliath.audit.recorded",
+        "to": {
+          "kind": "agent",
+          "name": "root"
+        }
+      },
+      {
+        "delivery": "single",
+        "from": {
+          "kind": "bus",
+          "name": "goliath_audit"
+        },
+        "signal": "goliath.incident.opened",
+        "to": {
+          "kind": "agent",
+          "name": "root"
+        }
+      },
+      {
+        "delivery": "single",
+        "from": {
+          "kind": "bus",
+          "name": "goliath_audit"
+        },
+        "signal": "goliath.incident.status_changed",
+        "to": {
+          "kind": "agent",
+          "name": "root"
+        }
+      }
+    ],
+    "members": [
+      {
+        "count": 3,
+        "definition": "Jido.Lab.Goliath.EvidenceWorker",
+        "name": "evidence_workers",
+        "routes": [
+          {
+            "defaults": [],
+            "handler": {
+              "kind": "action",
+              "target": "Inline action"
+            },
+            "reply": null,
+            "signal": "goliath.evidence.collect",
+            "state": "output"
+          }
+        ]
+      },
+      {
+        "count": 1,
+        "definition": "Jido.Lab.Goliath.AuditDesk",
+        "name": "audit",
+        "routes": [
+          {
+            "defaults": [],
+            "handler": {
+              "kind": "transform",
+              "target": "Jido.Lab.Goliath.AuditDesk (inline)"
+            },
+            "reply": null,
+            "signal": "goliath.evidence.collected",
+            "state": null
+          }
+        ]
+      }
+    ]
+  }
+}

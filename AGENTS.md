@@ -1,65 +1,24 @@
 # AGENTS.md - Jido Studio
 
-## Project Overview
+## Project overview
 
-Jido Studio is an embeddable, standalone LiveView dashboard for managing and debugging Jido AI agents. It follows the Oban Web architectural pattern: a self-contained Hex package that mounts into a Phoenix router with a single macro, inlining all CSS/JS assets at compile time.
+Jido Studio is an embeddable Phoenix LiveView dashboard. On `release/v3`,
+it provides a mount macro, a layout, and an Overview page. The host provides
+the root layout and LiveView client. The local integration target is
+`studio_playground/`, which runs Jido v3.
 
-## Common Commands
+Use `lib/` and `test/` for the current Studio code. Use `lib_old/` and
+`test_old/` as references for the previous implementation. Mix does not
+compile or run the archived files.
 
-```bash
-mix test                           # Run tests
-mix compile --warnings-as-errors   # Compile with strict warnings
-mix format                         # Format code
-mix credo --min-priority higher    # Lint code
-mix docs                           # Generate documentation
-```
+## Common commands
 
-## Project Structure
-
-```
-jido_studio/
-├── lib/
-│   ├── jido_studio.ex              # Main module, version
-│   └── jido_studio/
-│       ├── application.ex          # Supervision tree (TraceBuffer)
-│       ├── router.ex               # Router macro (jido_studio/2)
-│       ├── resolver.ex             # Access control behaviour
-│       ├── hooks.ex                # LiveView on_mount hooks
-│       ├── layouts.ex              # Root layout with sidebar nav
-│       ├── assets.ex               # Compile-time asset inlining
-│       ├── trace_buffer.ex         # ETS ring buffer for telemetry
-│       └── live/                   # LiveView pages
-│           ├── agents_live.ex      # Agent browser + chat
-│           ├── actions_live.ex     # Action catalog
-│           ├── workflows_live.ex   # Workflow visualizer
-│           ├── signals_live.ex     # Signal monitor
-│           ├── traces_live.ex      # Telemetry trace viewer
-│           └── settings_live.ex    # Runtime settings
-├── priv/static/                    # Compiled CSS/JS (inlined at build)
-├── test/
-└── config/
-```
-
-## Architecture
-
-### Embedding Pattern (Oban Web style)
-
-1. Host app imports `JidoStudio.Router` in their router
-2. `jido_studio "/studio"` macro expands into a `live_session` with routes
-3. Routes point to LiveViews inside this package
-4. Root layout (`JidoStudio.Layouts.studio/1`) provides shell + sidebar
-5. CSS/JS inlined at compile time via `JidoStudio.Assets` — no asset pipeline
-
-### Key Modules
-
-| Module | Purpose |
-|--------|---------|
-| `JidoStudio.Router` | Router macro for mounting |
-| `JidoStudio.Resolver` | Access control behaviour |
-| `JidoStudio.Layouts` | Root layout with sidebar navigation |
-| `JidoStudio.Assets` | Compile-time CSS/JS inlining |
-| `JidoStudio.Hooks` | LiveView on_mount setup |
-| `JidoStudio.TraceBuffer` | ETS telemetry ring buffer |
+- `mix test`
+- `mix compile --warnings-as-errors`
+- `mix format --check-formatted`
+- `mix credo --min-priority higher`
+- `mix docs`
+- Run `mix precommit` from `studio_playground/` to check the mounted app.
 
 ## Code Style
 

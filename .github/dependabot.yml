@@ -13,7 +13,7 @@ updates:
       include: "scope"
 
   - package-ecosystem: "mix"
-    directory: "/dev/studio_playground"
+    directory: "/studio_playground"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10

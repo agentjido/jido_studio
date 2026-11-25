@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="status" content="proposed">
+<meta name="review-date" content="2026-11-24">
+<title>Agent definition · Jido Studio prototype (Claude)</title>
+<style>
+:root{
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#111319; --panel:#191c24; --panel2:#20242e; --canvas:#0d0f14; --dot:#242936;
+  --text:#e8eaf0; --muted:#a3acbc; --line:#2d3241; --focus:#ffd166; --accent:#f2c14e; --ink:#13110d;
+  --det:rgba(0,0,0,.20); --shade:rgba(0,0,0,.35); --flash:rgba(242,193,78,.16);
+  --c-event:#f2c14e; --c-state:#ee8a45; --c-chat:#33bfae; --c-memory:#a487f0; --c-realm:#6cc46a;
+  --c-model:#6b9af2; --c-action:#9eabc5; --c-par:#5aa6d6; --c-wait:#a2a8b4; --c-reply:#ef6a8d; --c-end:#6f7684;
+  --stripe:rgba(0,0,0,.20);
+}
+[data-theme="light"]{
+  color-scheme: light;
+  --bg:#f6efe3; --panel:#fffaf2; --panel2:#f8efe0; --canvas:#efe4d1; --dot:#dccdb3;
+  --text:#2b2218; --muted:#65563f; --line:#dccdb4; --focus:#b3440a; --accent:#b3440a; --ink:#1f1912;
+  --det:rgba(255,255,255,.45); --shade:rgba(80,50,10,.18); --flash:rgba(179,68,10,.10);
+  --c-event:#f6cf63; --c-state:#f5ae7c; --c-chat:#86d3c7; --c-memory:#c9b6f4; --c-realm:#a7d89f;
+  --c-model:#a9c3f6; --c-action:#cfd5e0; --c-par:#aed0e8; --c-wait:#dbd3c3; --c-reply:#f3a1b7; --c-end:#c9bfae;
+  --stripe:rgba(60,40,10,.10);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:15px/1.45 var(--sans)}
+code,.mono{font-family:var(--mono);font-size:.9em}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--focus);outline-offset:3px;border-radius:6px}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.mini{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:650}
+.muted{color:var(--muted)}
+
+/* Header */
+.top{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{display:flex;gap:10px;align-items:center;min-width:0}
+.logo{width:26px;height:26px;border-radius:8px 8px 3px 3px;background:var(--c-event);flex:none}
+.brand h1{font-size:1rem;margin:0}
+.brand p{margin:0;color:var(--muted);font-size:.8rem}
+.status{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:1px 9px;font-size:.78rem;background:var(--panel2);white-space:nowrap}
+.pill.proposed{border-color:var(--accent);color:var(--accent);font-weight:650}
+.pill.sample{border-style:dashed;border-color:var(--c-reply)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;background:var(--panel2);margin:0;min-width:0}
+.seg legend{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.seg label{position:relative;display:block}
+.seg input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.seg span{display:block;padding:4px 12px;border-radius:999px;font-size:.84rem;cursor:pointer;white-space:nowrap}
+.seg input:checked + span{background:var(--text);color:var(--bg);font-weight:650}
+.seg input:focus-visible + span{outline:3px solid var(--focus);outline-offset:2px}
+
+/* Shell */
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:18px;padding:16px 20px 24px;align-items:start;max-width:1320px;margin:0 auto}
+.main{min-width:0}
+
+/* Profile */
+.profile{display:grid;gap:10px;margin:0 0 14px}
+.switch-row{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between}
+.agents .short{display:none}
+.agents .size{font-size:.68rem;opacity:.7;margin-left:6px;font-weight:500}
+.job{margin:0;font-size:1.12rem;line-height:1.4;max-width:62ch}
+.job b{font-weight:700}
+.adet{font-size:.82rem;color:var(--muted)}
+.adet summary{cursor:pointer;width:max-content;max-width:100%}
+.adet dl{margin:8px 0 0;display:grid;gap:3px}
+.adet dl div{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px}
+.adet dd{margin:0;color:var(--text);word-break:break-word}
+
+/* Entry point rows */
+.rows-wrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.cols,.row-line{display:grid;grid-template-columns:minmax(170px,1.05fr) minmax(0,1.5fr) minmax(0,1.45fr) 28px;gap:16px;align-items:start}
+.cols{padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel2)}
+.rows{list-style:none;margin:0;padding:0}
+.ghead{padding:10px 16px 4px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.rows > .ghead:first-child{border-top:0}
+.ghead small{color:var(--muted);font-size:.78rem}
+.row{border-top:1px solid var(--line);scroll-margin-top:12px}
+.ghead + .row{border-top:0}
+.row-line{padding:12px 16px;cursor:pointer}
+.row:hover .row-line{background:var(--panel2)}
+.row.open > .row-line{background:var(--panel2)}
+.row.flash > .row-line{background:var(--flash);box-shadow:inset 4px 0 0 var(--accent)}
+.trig{all:unset;box-sizing:border-box;display:block;cursor:pointer;border-radius:6px;min-width:0}
+.trig:focus-visible{outline:3px solid var(--focus);outline-offset:4px}
+.trig b{display:block;font-size:1rem;font-weight:700;line-height:1.3}
+.trig small{display:block;color:var(--muted);font-size:.8rem;margin-top:2px}
+.cell-l{display:none}
+.work p{margin:0}
+.work .steps{display:block;color:var(--muted);font-size:.78rem;margin-top:3px}
+.res-list{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.res-list li{display:flex;gap:7px;align-items:baseline}
+.g{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:5px;font-size:.72rem;color:var(--ink);flex:none;transform:translateY(2px)}
+.g.k-reply{background:var(--c-reply)}.g.k-state{background:var(--c-state)}.g.k-memory{background:var(--c-memory)}.g.k-chat{background:var(--c-chat)}.g.k-none{background:var(--c-end)}
+.g.k-wait{background-color:var(--c-wait);background-image:repeating-linear-gradient(135deg,var(--stripe) 0 4px,transparent 4px 8px)}
+.res-list .r-label{font-weight:600}
+.res-list .r-note{color:var(--muted);font-size:.82rem}
+.next{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;font-size:.85rem}
+.next .mini{font-size:.68rem}
+.next.k-wait{padding:6px 8px;border-radius:8px;border:1px dashed var(--muted);background-image:repeating-linear-gradient(135deg,var(--stripe) 0 6px,transparent 6px 12px)}
+.next.k-none{color:var(--muted)}
+.go{display:inline-flex;gap:5px;align-items:center;border:1px solid var(--line);border-radius:6px;padding:2px 8px;font-size:.84rem;font-weight:650;cursor:pointer;background:var(--panel);color:var(--text)}
+.go:hover{border-color:var(--muted)}
+.go .arr{color:var(--muted)}
+.chev{width:22px;height:22px;border-radius:50%;border:1px solid var(--line);position:relative;justify-self:end;margin-top:2px}
+.chev::before{content:"";position:absolute;left:8px;top:5px;border:5px solid transparent;border-left:6px solid var(--muted)}
+.row.open .chev::before{left:5px;top:8px;border:5px solid transparent;border-top:6px solid var(--muted)}
+
+/* Expansion */
+.panel-x{border-top:1px dashed var(--line);background:var(--canvas);background-image:radial-gradient(var(--dot) 1.2px,transparent 1.3px);background-size:18px 18px;padding:14px 16px 18px}
+.x-head{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin:0 0 12px}
+.x-head h3{margin:0;font-size:.95rem}
+.contract{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 14px;max-width:760px}
+.contract dl{margin:0;display:grid;gap:4px;font-size:.86rem}
+.contract dl div{display:grid;grid-template-columns:130px minmax(0,1fr);gap:10px}
+.contract dt{color:var(--muted)}
+.contract dd{margin:0;word-break:break-word}
+.btn{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:.82rem}
+.btn:hover{border-color:var(--muted)}
+.x-foot{max-width:760px;margin-top:16px;display:grid;gap:8px;font-size:.86rem}
+.x-foot p{margin:0;display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
+.x-note{border:1px dashed var(--muted);border-radius:8px;padding:8px 10px;background:var(--panel)}
+
+/* Blocks */
+.stack{list-style:none;margin:0;padding:0;max-width:760px}
+.blk-row{display:grid;grid-template-columns:minmax(0,1fr) 170px;gap:12px;align-items:start}
+.uses{list-style:none;margin:0;padding:10px 0 0;display:flex;flex-wrap:wrap;gap:5px;align-content:flex-start}
+.uses:empty{padding:0}
+.blk-body{position:relative;color:var(--ink);background:var(--c-action);border-radius:6px;box-shadow:0 2px 0 var(--shade)}
+.blk + .blk > .blk-row > .blk-body::before{content:"";position:absolute;top:-1px;left:24px;width:36px;height:9px;border-radius:0 0 9px 9px;background:var(--shade)}
+.blk:not(.last) > .blk-row > .blk-body::after{content:"";position:absolute;bottom:-9px;left:24px;width:36px;height:10px;border-radius:0 0 9px 9px;background:inherit;z-index:3;box-shadow:0 2px 0 var(--shade)}
+.blk-head{all:unset;box-sizing:border-box;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:4px 10px;align-items:center;width:100%;padding:11px 14px 11px 12px;cursor:pointer;color:var(--ink);border-radius:6px}
+div.blk-head{cursor:default}
+.blk-head:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+.tag{font-size:.68rem;font-weight:750;letter-spacing:.05em;text-transform:uppercase;background:rgba(255,255,255,.28);border:1px solid rgba(0,0,0,.18);border-radius:4px;padding:1px 6px;white-space:nowrap}
+.blk-title{font-weight:650;min-width:0;word-break:break-word}
+.blk-sub{grid-column:2/-1;font-size:.8rem;opacity:.85}
+.blk-key{font-size:.72rem;background:rgba(0,0,0,.12);border-radius:4px;padding:1px 6px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:.68rem;border:1px dashed rgba(0,0,0,.5);border-radius:4px;padding:0 5px}
+.bchev{width:16px;height:16px;border-radius:50%;background:rgba(0,0,0,.14);position:relative}
+.bchev::before{content:"";position:absolute;left:6px;top:4px;border:4px solid transparent;border-left:5px solid var(--ink)}
+.blk-head[aria-expanded="true"] .bchev::before{left:4px;top:6px;border:4px solid transparent;border-top:5px solid var(--ink)}
+.blk-detail{margin:0 12px 12px;padding:9px 11px;background:var(--det);border-radius:6px;font-size:.84rem}
+.kv{margin:0;display:grid;gap:4px}
+.kv div{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px}
+.kv dt{font-weight:650}
+.kv dd{margin:0;word-break:break-word}
+.chip{display:inline-flex;gap:4px;align-items:center;border:1px solid rgba(0,0,0,.3);border-radius:999px;padding:1px 9px;font-size:.76rem;cursor:pointer;color:var(--ink);background:var(--c-action);white-space:nowrap}
+.cat-event > .blk-row > .blk-body,.chip.cat-event{background:var(--c-event)}
+.cat-state > .blk-row > .blk-body,.chip.cat-state{background:var(--c-state)}
+.cat-chat > .blk-row > .blk-body,.chip.cat-chat{background:var(--c-chat)}
+.cat-memory > .blk-row > .blk-body,.chip.cat-memory{background:var(--c-memory)}
+.cat-realm > .blk-row > .blk-body,.chip.cat-realm{background:var(--c-realm)}
+.cat-model > .blk-row > .blk-body,.chip.cat-model{background:var(--c-model)}
+.cat-action > .blk-row > .blk-body,.chip.cat-action{background:var(--c-action)}
+.cat-par > .blk-row > .blk-body{background:var(--c-par);padding-bottom:0}
+.cat-reply > .blk-row > .blk-body{background:var(--c-reply);border-radius:6px 6px 22px 22px}
+.cat-end > .blk-row > .blk-body{background:var(--c-end);border-radius:6px 6px 22px 22px}
+.cat-wait > .blk-row > .blk-body,.chip.cat-wait{background-color:var(--c-wait);background-image:repeating-linear-gradient(135deg,var(--stripe) 0 7px,transparent 7px 14px)}
+.cat-state > .blk-row > .blk-body{border-radius:2px;border-left:6px solid rgba(0,0,0,.28)}
+.cat-chat > .blk-row > .blk-body{border-radius:6px 20px 20px 6px}
+.cat-memory > .blk-row > .blk-body{box-shadow:0 2px 0 var(--shade), inset 0 0 0 3px rgba(255,255,255,.35), inset 0 0 0 5px rgba(0,0,0,.14)}
+.cat-realm > .blk-row > .blk-body{outline:2px dashed rgba(0,0,0,.45);outline-offset:-5px}
+.hat > .blk-row > .blk-body{border-radius:30px 30px 6px 6px;margin-top:16px;padding-top:6px}
+.beacon{position:absolute;top:-15px;left:20px;width:30px;height:30px;border-radius:50%;background:var(--c-event);box-shadow:0 0 0 4px var(--canvas),0 0 0 6px var(--c-event)}
+.beacon::after{content:"";position:absolute;inset:9px;border-radius:50%;background:var(--ink)}
+.hat .blk-head{padding-top:18px}
+.lanes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 0 0 18px;padding:12px;background:var(--canvas);border-radius:6px 0 0 6px}
+.lane-label{margin:0 0 6px;font-size:.7rem;font-weight:750;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.lane .blk-row{grid-template-columns:minmax(0,1fr)}
+.lane .uses{padding:6px 0 0}
+.lane .blk-head{grid-template-columns:auto minmax(0,1fr) auto}
+.lane .blk-key{grid-column:1/-1;justify-self:start}
+.join{padding:6px 14px 10px;font-size:.72rem;font-weight:750;text-transform:uppercase;letter-spacing:.05em}
+.wait-links{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:0 14px 12px;font-size:.82rem}
+.wait-links .go{background:rgba(255,255,255,.55);color:var(--ink);border-color:rgba(0,0,0,.3)}
+
+/* Sample trace */
+.trace-head{background:var(--panel);border:1px dashed var(--c-reply);border-radius:12px;padding:12px 14px;margin:0 0 16px}
+.trace-head h2{margin:4px 0 0;font-size:1.05rem}
+.trace-head p{margin:6px 0 0;font-size:.86rem;color:var(--muted)}
+.eyebrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:.8rem;color:var(--muted)}
+.variant{margin:0 0 14px}
+.phase{max-width:720px;margin:0 0 18px}
+.phase h3{font-size:.9rem;margin:0 0 8px}
+.timeline{list-style:none;margin:0 0 0 14px;padding:0 0 0 16px;border-left:3px dotted var(--muted)}
+.tl{position:relative;margin:0 0 10px;padding:8px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.tl::before{content:attr(data-n);position:absolute;left:-32px;top:8px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--panel2);border:2px solid var(--muted);font:700 .74rem var(--sans)}
+.tl p{margin:0}
+.tl .tl-kind{font-size:.68rem;font-weight:750;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.tl .tl-go{margin-top:6px;display:flex;flex-wrap:wrap;gap:6px}
+.tl.k-fault{border-color:var(--c-reply);border-width:2px}
+.tl.k-stop{border-style:dashed}
+.tl.k-wait{background-image:repeating-linear-gradient(135deg,var(--stripe) 0 7px,transparent 7px 14px)}
+.tl.k-grant{border-left:6px solid var(--c-state)}
+.tl.k-reply{border-left:6px solid var(--c-reply)}
+.tl.k-event{border-left:6px solid var(--c-chat)}
+.scope{max-width:720px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 18px}
+.scope section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px}
+.scope h4{margin:0 0 6px;font-size:.82rem}
+.scope ul{margin:0;padding-left:18px;font-size:.84rem}
+.scope-title{max-width:720px;margin:0 0 8px;font-size:.9rem}
+.checks{max-width:720px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.checks h3{margin:0 0 6px;font-size:.9rem}
+.checks ul{margin:0;padding-left:20px;font-size:.88rem}
+.cmd{max-width:720px;margin:12px 0 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.cmd code{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:3px 8px;word-break:break-all}
+
+/* Side */
+.side{position:sticky;top:12px;display:grid;gap:14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.panel h2{font-size:.9rem;margin:0 0 10px}
+.res{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.res-head{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center;text-align:left;border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:var(--panel2);cursor:pointer}
+.res-head small{display:block;color:var(--muted);font-family:var(--mono);font-size:.72rem}
+.res-head .bchev{background:var(--line)}
+.res-head .bchev::before{border-left-color:var(--text)}
+.res-head[aria-expanded="true"] .bchev::before{border-left-color:transparent;border-top-color:var(--text)}
+.res-body{padding:8px 10px 4px;font-size:.82rem}
+.res-body .kv div{grid-template-columns:92px minmax(0,1fr)}
+.res-src{margin:6px 0 0;font-size:.72rem;color:var(--muted)}
+.res li.flash .res-head{outline:3px solid var(--focus);outline-offset:2px}
+.sw{width:14px;height:14px;border-radius:3px;border:1px solid rgba(0,0,0,.3);flex:none}
+.sw.cat-state{background:var(--c-state)}.sw.cat-chat{background:var(--c-chat)}.sw.cat-memory{background:var(--c-memory)}.sw.cat-realm{background:var(--c-realm)}.sw.cat-model{background:var(--c-model)}.sw.cat-action{background:var(--c-action)}.sw.cat-wait{background:var(--c-wait)}.sw.cat-reply{background:var(--c-reply)}.sw.cat-event{background:var(--c-event)}.sw.cat-par{background:var(--c-par)}
+.legend{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:.8rem}
+.legend li{display:flex;gap:6px;align-items:center}
+
+footer{padding:12px 20px 24px;color:var(--muted);font-size:.8rem;display:flex;flex-wrap:wrap;gap:6px 18px;max-width:1320px;margin:0 auto}
+footer code{color:var(--text)}
+
+@media (max-width:1100px){
+  .wrap{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+}
+@media (max-width:860px){
+  .cols{display:none}
+  .row-line{grid-template-columns:minmax(0,1fr) 24px;gap:6px 10px;padding:12px 14px}
+  .row-line > .work,.row-line > .result{grid-column:1/2}
+  .row-line > .chev{grid-column:2;grid-row:1}
+  .cell-l{display:block;font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:650;margin-bottom:1px}
+  .blk-row{grid-template-columns:minmax(0,1fr)}
+  .uses{padding:6px 0 0}
+}
+@media (max-width:640px){
+  body{font-size:14px}
+  .top{padding:8px 12px;gap:6px 10px}
+  .brand p{display:none}
+  .status .pill{display:none}
+  .seg span{padding:3px 9px;font-size:.8rem}
+  .wrap{padding:10px 10px 18px;gap:14px}
+  .agents .full{display:none}
+  .agents .short{display:inline;padding:0}
+  .agents .size{display:none}
+  .switch-row{gap:8px}
+  .profile{gap:7px;margin-bottom:10px}
+  .job{font-size:1rem}
+  .ghead{padding:8px 14px 2px}
+  .row-line{grid-template-columns:minmax(0,0.9fr) minmax(0,1.1fr);gap:6px 12px;padding:9px 12px 10px}
+  .row-line > .entry{grid-column:1/-1;grid-row:1;padding-right:28px}
+  .row-line > .work{grid-column:1;grid-row:2}
+  .row-line > .result{grid-column:2;grid-row:2}
+  .entry .cell-l,.work .steps{display:none}
+  .next{margin:6px 0 0}
+  .next.k-wait{padding:4px 5px}
+  .next .go{padding-inline:5px;max-width:100%}
+  .panel-x{padding:12px 10px 16px}
+  .blk-head{grid-template-columns:auto minmax(0,1fr) auto}
+  .blk-head .blk-key,.blk-head .badge{grid-column:1/-1;justify-self:start}
+  .lanes{grid-template-columns:minmax(0,1fr);margin-left:10px}
+  .kv div,.contract dl div,.adet dl div{grid-template-columns:minmax(0,1fr);gap:0}
+  .scope{grid-template-columns:minmax(0,1fr)}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo" aria-hidden="true"></div>
+    <div>
+      <h1>Agent definition</h1>
+      <p>Jido Studio · Claude prototype</p>
+    </div>
+  </div>
+  <div class="status">
+    <span class="pill proposed">Proposed</span>
+    <span class="pill">Review <time datetime="2026-11-24">2026-11-24</time></span>
+    <fieldset class="seg" id="theme">
+      <legend>Theme</legend>
+      <label><input type="radio" name="theme" value="dark" checked><span>Studio dark</span></label>
+      <label><input type="radio" name="theme" value="light"><span>Warm light</span></label>
+    </fieldset>
+  </div>
+</header>
+
+<div class="wrap">
+  <main class="main" id="main">
+    <section class="profile" aria-labelledby="job">
+      <div class="switch-row">
+        <fieldset class="seg agents" id="agents"><legend>Agent</legend></fieldset>
+        <fieldset class="seg" id="view">
+          <legend>View</legend>
+          <label><input type="radio" name="view" value="def" checked><span>Entry points</span></label>
+          <label><input type="radio" name="view" value="trace"><span>Sample trace</span></label>
+        </fieldset>
+      </div>
+      <p class="job" id="job"></p>
+      <details class="adet" id="adet"><summary>Agent details</summary><dl id="agent-meta"></dl></details>
+    </section>
+    <p class="vh" id="live" aria-live="polite"></p>
+    <div id="body"></div>
+  </main>
+
+  <aside aria-label="Agent resources">
+    <div class="side">
+      <section class="panel">
+        <h2>Resources</h2>
+        <ul class="res" id="res"></ul>
+      </section>
+      <section class="panel">
+        <h2>Block kinds</h2>
+        <ul class="legend" id="legend"></ul>
+      </section>
+    </div>
+  </aside>
+</div>
+
+<footer>
+  <span>Status: <strong>Proposed</strong></span>
+  <span>Review date: 2026-11-24</span>
+  <span>Sources: <code>team-communication.ex</code>, <code>withdraw-evidence.md</code>, <code>software-factory.ex</code>, <code>lost-publication-reply.md</code>. Demo Counter: design brief.</span>
+  <span>Prototype only. It sends no signals.</span>
+</footer>
+
+<script>
+/*DATA*/
+const CATS = {
+  event:{g:'⚑',l:'Event'}, state:{g:'▣',l:'State'}, chat:{g:'✉',l:'Chat'}, memory:{g:'◎',l:'Memory'},
+  realm:{g:'⬡',l:'Realm'}, model:{g:'✦',l:'Model'}, action:{g:'▶',l:'Action'}, par:{g:'⫴',l:'Parallel'},
+  wait:{g:'⧗',l:'Wait'}, reply:{g:'↩',l:'Reply'}, end:{g:'■',l:'End'}
+};
+const RK = {reply:'↩', state:'▣', memory:'◎', chat:'✉', wait:'⧗', none:'—'};
+const TEAM_EX = 'team-communication.ex', TEAM_MD = 'withdraw-evidence.md';
+const FAC_EX = 'software-factory.ex', FAC_MD = 'lost-publication-reply.md';
+
+/* Route overview fields:
+   id, trigger, from: readable entry point
+   work: one-sentence summary of one turn
+   results: [{k, label, note}] shown on the row
+   next: follow-up handoff {k:'wait'|'send'|'event'|'none'|'related', text, to:[ids], note} */
+const AGENTS = {
+  counter: {
+    size:'Small', name:'Demo Counter', short:'Counter', source:'Design brief',
+    job:'<b>Demo Counter</b> adds an amount to a saved count and replies with the new count.',
+    meta:[['Agent','Studio demo'],['Source','Design brief (no staged file)']],
+    resources:[
+      {id:'c-state', cat:'state', name:'State', sub:'count', src:'Design brief', rows:[['count','integer'],['Initial value','`0`']]},
+      {id:'c-inc', cat:'action', name:'Increment action', sub:'action', src:'Design brief', rows:[['Inputs','`count`, `amount`'],['Result','New count']]}
+    ],
+    groups:[{name:'Count'}],
+    routes:[
+      {id:'increment', group:'Count', trigger:'Increment', from:'Amount 1 to 10',
+       work:'Read the count, add the amount, and save the new count.',
+       results:[{k:'state', label:'Count saved', note:'in state'},{k:'reply', label:'Count updated', note:'reply with the same value'}],
+       next:{k:'none', text:'No follow-up signal.'},
+       signal:'demo.counter.increment', kind:'Action', src:'Design brief',
+       hatRows:[['Payload','`amount` · integer, `1`–`10`, default `1`']], statePolicy:'Commit action result',
+       blocks:[
+         {cat:'state', key:'count', title:'Read count from state', rows:[['Reads','`count`'],['Initial value','`0`']], res:['c-state']},
+         {cat:'action', key:'increment', title:'Run increment action', rows:[['Inputs','`count`, `amount`'],['Result','New count']], res:['c-inc']},
+         {cat:'state', key:'commit', title:'Commit result to state', rows:[['Uses','Increment result'],['Writes','`count`']], res:['c-state']}
+       ],
+       end:{type:'reply', signal:'demo.counter.updated', sub:'Same count as the saved state', rows:[['Data','`count`'],['Equals','Committed value']]}
+      }
+    ],
+    sample:{
+      file:'Design brief', title:'One increment', note:'Example values. Not a runtime contract.',
+      phases:[{title:'Turn 1', steps:[
+        {kind:'signal', text:'Send Increment with `amount` `1`.', go:['increment']},
+        {kind:'note', text:'State starts with `count` `0`.'},
+        {kind:'note', text:'Increment returns `1`. State saves `1`.'},
+        {kind:'reply', text:'Reply Count updated with `count` `1`.'}
+      ]}],
+      checks:['Reply count equals saved count.','Amount outside `1`–`10` is not valid input.']
+    }
+  },
+
+  team: {
+    size:'Medium', name:'Team Communication', short:'Team', source:TEAM_EX,
+    job:'<b>Team Communication</b> answers Telegram questions with only the evidence that the current grant permits.',
+    meta:[['Agent','`lab_team_communication`'],['Module','`Jido.Lab.Journeys.TeamCommunication.Agent`'],['Signal source','`/lab/conversation`'],['Plugins','`Jido.Chat.Plugin`, `Jido.Memory.Plugin`']],
+    resources:[
+      {id:'t-state', cat:'state', name:'State', sub:'schema', src:TEAM_EX, rows:[['run','string'],['room','string'],['inference_client','atom']]},
+      {id:'t-chat', cat:'chat', name:'Chat connection', sub:':questions', src:TEAM_EX, rows:[['Adapter','`Chat.Telegram.Adapter`'],['Client ID','`lab-team-questions`'],['Transport','`Jido.Lab.Chat.Telegram.Fixture`'],['Rooms','`42`, `43`'],['Commands','`Chat.SendMessage`']]},
+      {id:'t-ev', cat:'memory', name:'Memory: evidence', sub:'external_collection', src:TEAM_EX, rows:[['Store','`MemoryStore`'],['Schema','`title`, `url`, `issue_number`']]},
+      {id:'t-read', cat:'memory', name:'Memory read', sub:':answer_evidence', src:TEAM_EX, rows:[['Collection','`evidence`'],['Exposes','`title`, `url`'],['Limit','`1`']]},
+      {id:'t-del', cat:'memory', name:'Memory: deliveries', sub:'collection', src:TEAM_EX, rows:[['Max entries','`1`'],['Schema','`id`, `room`']]},
+      {id:'t-model', cat:'model', name:'Inference', sub:'ReAct', src:TEAM_EX, rows:[['Client','`state.inference_client`'],['Thread','New `Jido.Session` for each answer']]},
+      {id:'t-realm', cat:'realm', name:'Realm', sub:'context.realm', src:TEAM_EX + ' · ' + TEAM_MD, rows:[['Holds','Copy of indexed evidence'],['Read by','`conversation.evidence.read`'],['Lab rule','Read fails under a revoked grant']]}
+    ],
+    groups:[{name:'Conversation'},{name:'Evidence'}],
+    routes:[
+      {id:'message', group:'Conversation', trigger:'Telegram question', from:'Chat message received',
+       work:'Check the grant, recall permitted evidence, generate an answer, and send it to Chat.',
+       steps:'4 steps',
+       results:[{k:'reply', label:'Answer ready', note:'delivery not confirmed yet'},{k:'chat', label:'Chat delivery sent', note:'effect'}],
+       next:{k:'event', text:'Chat sends', to:['completion'], note:'later, in a new turn'},
+       signal:'jido.chat.message.received', kind:'Flow `Answer`', src:TEAM_EX,
+       hatRows:[['Flow','`lab/team-communication/answer`'],['Payload schema','`Chat.Signal.MessageReceived`'],['Connection','`:questions` · Telegram']], hatRes:['t-chat'],
+       statePolicy:'`:unchanged`',
+       blocks:[
+         {cat:'state', key:'check_current_grant', title:'Check current grant', rows:[['Input','`room_id`'],['Reads','`agent_state`'],['Call','`Evidence.check_room`'],['Result','`active`']], res:['t-state']},
+         {cat:'memory', key:'recall_evidence', title:'Recall permitted evidence', rows:[['Action','`Jido.Memory.Actions.RecallGranted`'],['Grant','`:answer_evidence`'],['Enabled by','`check_current_grant` → `active`'],['Exposes','`title`, `url` · limit `1`']], res:['t-read','t-ev']},
+         {cat:'model', key:'generate_answer', title:'Generate answer', rows:[['Inputs','`Evidence.authorized_inputs`'],['Thread','New `Jido.Session` for each answer'],['Reasoning','`ReAct` · `1` model call · `0` tool rounds · `0` retries'],['Tools','Disabled'],['Instruction','Answer using only the evidence in this request.'],['On failure','`{:answer_inference_failed, code}`']], res:['t-model']},
+         {cat:'chat', key:'deliver_answer', title:'Send Chat delivery', badge:'Effect', rows:[['Check','`Evidence.delivery_answer`'],['Command','`Chat.Signal.SendMessage`'],['Effect','`Chat.Plugin.Deliver`'],['request_id','`<item_id>:answer`'],['reply_to_id','`message_id`'],['Keeps','`room_id`, `thread_id`']], res:['t-chat']}
+       ],
+       end:{type:'reply', signal:'conversation.answer.ready', sub:'Answer is ready. Delivery is not confirmed here.', rows:[['From','Flow output (`deliver_answer`)']]}
+      },
+      {id:'completion', group:'Conversation', trigger:'Chat completion', from:'Sent by Chat after delivery',
+       work:'Store the delivery receipt in Memory.',
+       results:[{k:'memory', label:'Receipt stored', note:'in deliveries'},{k:'none', label:'No reply'}],
+       next:{k:'none', text:'No follow-up signal.'},
+       signal:'jido.chat.command.send_message.completed', kind:'Action', src:TEAM_EX,
+       hatRows:[['Payload schema','`Chat.SendMessage.output_schema()`'],['Matches','`request_id`, `result.id`, `result.room_id`']], hatRes:['t-chat'],
+       statePolicy:'Returns current `agent_state`',
+       blocks:[
+         {cat:'memory', key:'Memory.remember', title:'Store delivery receipt', rows:[['Call','`Memory.remember(:deliveries, request_id, %{id, room})`'],['Returns','`agent_state`, `[receipt]`']], res:['t-del']}
+       ],
+       end:{type:'none', sub:'No reply declared'},
+       after:{text:'Starts after the delivery from', to:['message']}
+      },
+      {id:'index', group:'Evidence', trigger:'Index evidence', from:'Lab setup',
+       work:'Index source evidence. Keep a copy in Realm.',
+       results:[{k:'reply', label:'Evidence indexed'}],
+       next:{k:'none', text:'No follow-up signal.'},
+       signal:'conversation.evidence.index', kind:'Action', src:TEAM_EX, statePolicy:'`:unchanged`',
+       blocks:[
+         {cat:'realm', key:'Evidence.index', title:'Index source evidence', rows:[['Call','`Evidence.index(context)`'],['Lab case','Source comes through Jido Connect. A copy stays in Realm.'],['Lab rule','Incomplete listing at the read limit: no Realm copy, no Memory record.']], res:['t-realm','t-ev']}
+       ],
+       end:{type:'reply', signal:'conversation.evidence.indexed', rows:[['From','Action output']]}
+      },
+      {id:'read', group:'Evidence', trigger:'Read Realm copy', from:'Direct request',
+       work:'Read the Realm copy of the evidence.',
+       results:[{k:'reply', label:'Evidence found'},{k:'none', label:'Fails under a revoked grant', note:'lab case'}],
+       next:{k:'none', text:'No follow-up signal.'},
+       signal:'conversation.evidence.read', kind:'Action', src:TEAM_EX, statePolicy:'`:unchanged`',
+       blocks:[
+         {cat:'realm', key:'Evidence.read_copy', title:'Read Realm copy', rows:[['Call','`Evidence.read_copy(agent_state, realm)`'],['Lab rule','Fails under the current grant after revoke.']], res:['t-realm','t-state']}
+       ],
+       end:{type:'reply', signal:'conversation.evidence.found', rows:[['From','Action output']]}
+      }
+    ],
+    sample:{
+      file:TEAM_MD, title:'Withdraw remembered evidence', note:'Lab case. Not a runtime contract. It follows two conversations across many turns, a restart, and external events. Row links map by signal name. The case text does not name routes.',
+      phases:[
+        {title:'First conversation', steps:[
+          {kind:'signal', text:'Index source evidence through Jido Connect. Keep a copy in Realm. The fixture finds the source on page two.', go:['index']},
+          {kind:'signal', text:'A Telegram question reads the evidence through the Jido Memory collection.', go:['message']},
+          {kind:'wait', text:'Hold: scripted Jido AI inference receives the old source.'},
+          {kind:'grant', text:'Revoke the Ash grant before the fixture returns its answer.'},
+          {kind:'reply', text:'Telegram transport receives the safe reply.'},
+          {kind:'event', text:'Chat completion arrives. The agent records it.', go:['completion']},
+          {kind:'note', text:'Keep the stale index entry. Access must stop before index cleanup.'}
+        ]},
+        {title:'Restart and second conversation', steps:[
+          {kind:'stop', text:'Stop the first agent after the held answer settles.'},
+          {kind:'signal', text:'Index a new source revision for the second conversation.', go:['index']},
+          {kind:'signal', text:'Restart the first agent. Replay its question through the Chat connection.', go:['message']},
+          {kind:'signal', text:'Direct request for the original Realm copy fails under the current grant.', go:['read']}
+        ]}
+      ],
+      checks:[
+        'Revoked conversation sends zero evidence records to the model.',
+        'Each answer starts with a fresh Thread. Original evidence cannot return through history.',
+        'Rebuilt Jido UI view and Telegram reply show no current evidence.',
+        'Second conversation sends only its own current title and URL. It receives one reply.'
+      ],
+      cmd:'mix test lib/jido_lab/journeys/team_communication/cases/withdraw_evidence'
+    }
+  },
+
+  factory: {
+    size:'Complex', name:'Software Factory', short:'Factory', source:FAC_EX,
+    job:'<b>Software Factory</b> turns a Telegram issue into a checked commit, waits for approval, and requests a draft pull request.',
+    meta:[['Agent','`lab_software_factory`'],['Module','`Jido.Lab.Journeys.SoftwareDelivery.Agent`'],['Signal source','`/lab/software-factory`'],['Plugins','`Jido.Chat.Plugin`, `Jido.AI.Agent.Plugin`']],
+    resources:[
+      {id:'f-state', cat:'state', name:'State', sub:'schema', src:FAC_EX, rows:[['job_id','string']]},
+      {id:'f-chat', cat:'chat', name:'Chat connection', sub:':issues', src:FAC_EX, rows:[['Adapter','`Chat.Telegram.Adapter`'],['Client ID','`lab-factory-issues`'],['Transport','`SoftwareDelivery.ProviderFixture`'],['Rooms','`42`'],['Commands','`Chat.SendMessage`']]},
+      {id:'f-ai', cat:'model', name:'AI reasoning', sub:'ReAct', src:FAC_EX + ' · ' + FAC_MD, rows:[['Reasoning','`Jido.AI.Reasoning.ReAct`'],['Lab case','Scripted inference proposes a title for the exact commit']]},
+      {id:'f-svc', cat:'action', name:'Factory services', sub:'context.factory_services', src:FAC_EX + ' · ' + FAC_MD, rows:[['Fields','`checkout`, `base`'],['Bindings','Harness, GitHub Connect, Chat replies']]},
+      {id:'f-realm', cat:'realm', name:'Realm', sub:'local', src:FAC_MD, rows:[['Runs','Harness worker'],['Makes','Git commit'],['Rule','Read final Harness event by cursor before journal prune']]},
+      {id:'f-ash', cat:'state', name:'Ash job', sub:'saved job', src:FAC_MD, rows:[['Key','`job_id`'],['Stores','Proposed title and model request with the checked commit'],['Restart','Keeps the original job ID']]},
+      {id:'f-loom', cat:'wait', name:'Loom run', sub:'versioned', src:FAC_MD, rows:[['Waits for','Approval'],['Resumes by','Jido UI Intent'],['Restart','Keeps the original run ID']]},
+      {id:'f-gh', cat:'chat', name:'GitHub draft', sub:'Jido Connect', src:FAC_MD, rows:[['Creates','Draft pull request'],['Live run','Named connection, scoped credential lease, disposable repository']]}
+    ],
+    groups:[
+      {name:'Candidate and draft'},
+      {name:'Issue intake'},
+      {name:'Saved job', note:'The Lab case does not name these routes. The source does not state their order.'}
+    ],
+    routes:[
+      {id:'prepare', group:'Candidate and draft', trigger:'Prepare candidate', from:'With an instruction',
+       work:'Run a Harness worker in Realm. Check and review the commit in parallel. Record the candidate.',
+       steps:'4 steps · 2 run in parallel',
+       results:[{k:'reply', label:'Candidate ready'},{k:'wait', label:'Approval pending', note:'Loom run waits'}],
+       next:{k:'wait', text:'Waits for', to:['approve']},
+       signal:'factory.candidate.prepare', kind:'Flow', src:FAC_EX,
+       hatRows:[['Payload schema','`instruction` · string']], statePolicy:'`:unchanged`',
+       blocks:[
+         {cat:'action', key:'load_pending_job', title:'Load pending job', rows:[['Call','`Factory.pending_job(job_id)`'],['Reads','`agent_state.job_id`']], res:['f-state','f-ash']},
+         {cat:'realm', key:'run_worker_and_commit', title:'Run Harness worker in Realm', rows:[['Call','`Candidate.prepare(factory_services, instruction)`'],['Inputs','`load_pending_job` result, `instruction`'],['Output','`job`, `candidate`'],['Lab case','Worker runs in a local Realm and makes a Git commit.']], res:['f-realm','f-svc']},
+         {cat:'par', key:'verify_commit', title:'Check and review commit', rows:[['Mode','Both actions run in parallel'],['Join','Results `[0]` and `[1]` go to the next step']],
+          lanes:[
+            [{cat:'action', key:'check_committed_bytes', title:'Check committed bytes', rows:[['Call','`Candidate.check(checkout, candidate, bytes)`'],['Output','`check_id`']], res:['f-svc']}],
+            [{cat:'action', key:'review_committed_paths', title:'Review committed paths', rows:[['Call','`Candidate.review(checkout, base, candidate)`'],['Output','`review_id`']], res:['f-svc']}]
+          ]},
+         {cat:'wait', key:'record_candidate_and_wait', title:'Record candidate and Loom wait', rows:[['Merges','Candidate without `bytes`, plus `check_id`, `review_id`'],['Call','`Factory.record_candidate(job, candidate, context)`'],['Lab case','Saves the candidate after both checks pass. Ash stores the proposed title and model request with the checked commit.'],['Loom','Run waits for approval']], res:['f-ash','f-loom','f-ai']}
+       ],
+       end:{type:'reply', signal:'factory.candidate.prepared', sub:'Candidate ready', rows:[['From','Flow output (`record_candidate_and_wait`)']]},
+       wait:{text:'Approval pending: Loom run waits', to:'approve'}
+      },
+      {id:'approve', group:'Candidate and draft', trigger:'Approve candidate', from:'Jido UI Intent (lab case)',
+       work:'Approve the candidate. Resume the waiting Loom run.',
+       results:[{k:'reply', label:'Candidate approved'}],
+       next:{k:'send', text:'Then send', to:['publish'], note:'separate signal'},
+       signal:'factory.candidate.approve', kind:'Action', src:FAC_EX,
+       hatRows:[['Payload schema','`input` · map'],['Lab case','Jido UI Intent']], statePolicy:'`:unchanged`',
+       blocks:[{cat:'action', key:'Factory.approve', title:'Approve candidate', rows:[['Call','`Factory.approve(job_id, input)`'],['Lab case','Resumes the versioned Loom run']], res:['f-loom','f-state']}],
+       end:{type:'reply', signal:'factory.candidate.approved', sub:'Candidate approved', rows:[['From','Action output']]},
+       after:{text:'Resolves Approval pending from', to:['prepare']}
+      },
+      {id:'publish', group:'Candidate and draft', trigger:'Publish draft', from:'No payload',
+       work:'Request a draft pull request through Jido Connect.',
+       results:[{k:'reply', label:'Draft published'}],
+       next:{k:'none', text:'No follow-up signal.', recover:true},
+       signal:'factory.draft.publish', kind:'Action', src:FAC_EX, statePolicy:'`:unchanged`',
+       blocks:[{cat:'chat', key:'Factory.publish', title:'Request draft pull request', rows:[['Call','`Factory.publish(job_id, factory_services)`'],['Lab case','GitHub through Jido Connect']], res:['f-gh','f-svc']}],
+       end:{type:'reply', signal:'factory.draft.published', sub:'Draft published', rows:[['From','Action output']]},
+       note:'Lost GitHub reply: recovery spans an agent and database restart. It is not a step in this turn.'
+      },
+      {id:'issue', group:'Issue intake', trigger:'Telegram issue', from:'Chat message received',
+       work:'Accept the issue for the current job.',
+       results:[{k:'reply', label:'Issue accepted'}],
+       next:{k:'send', text:'Lab case then sends', to:['prepare']},
+       signal:'jido.chat.message.received', kind:'Action', src:FAC_EX,
+       hatRows:[['Payload schema','`Chat.Signal.MessageReceived`'],['Connection','`:issues` · Telegram']], hatRes:['f-chat'], statePolicy:'`:unchanged`',
+       blocks:[{cat:'chat', key:'Factory.intake', title:'Accept issue', rows:[['Call','`Factory.intake(job_id, message)`']], res:['f-chat','f-state']}],
+       end:{type:'reply', signal:'factory.issue.accepted', sub:'Issue accepted', rows:[['From','Action output']]}
+      },
+      {id:'s-stage', group:'Saved job', trigger:'Stage saved job', from:'With an instruction',
+       work:'Stage the saved job with this signal ID.',
+       results:[{k:'reply', label:'Saved job staged'}],
+       next:{k:'related', text:'Related', to:['s-accept']},
+       signal:'factory.saved.stage', kind:'Action', src:FAC_EX,
+       hatRows:[['Payload schema','`instruction` · string']], statePolicy:'`:unchanged`',
+       blocks:[{cat:'action', key:'Factory.stage_saved', title:'Stage saved job', rows:[['Call','`Factory.stage_saved(job_id, signal.id, factory_services, instruction)`']], res:['f-state','f-svc']}],
+       end:{type:'reply', signal:'factory.saved.staged', rows:[['From','Action output']]}
+      },
+      {id:'s-accept', group:'Saved job', trigger:'Accept saved job', from:'With a digest',
+       work:'Accept the saved job that matches the digest.',
+       results:[{k:'reply', label:'Saved job accepted'}],
+       next:{k:'related', text:'Related', to:['s-stage','s-publish']},
+       signal:'factory.saved.accept', kind:'Action', src:FAC_EX,
+       hatRows:[['Payload schema','`digest` · string']], statePolicy:'`:unchanged`',
+       blocks:[{cat:'action', key:'Factory.accept_saved', title:'Accept saved job', rows:[['Call','`Factory.accept_saved(job_id, digest, factory_services, context)`']], res:['f-state','f-svc']}],
+       end:{type:'reply', signal:'factory.saved.accepted', rows:[['From','Action output']]}
+      },
+      {id:'s-publish', group:'Saved job', trigger:'Publish saved job', from:'No payload',
+       work:'Publish the saved job.',
+       results:[{k:'reply', label:'Saved job published'}],
+       next:{k:'related', text:'Related', to:['s-accept']},
+       signal:'factory.saved.publish', kind:'Action', src:FAC_EX, statePolicy:'`:unchanged`',
+       blocks:[{cat:'action', key:'Factory.publish_saved', title:'Publish saved job', rows:[['Call','`Factory.publish_saved(job_id, factory_services)`']], res:['f-state','f-svc']}],
+       end:{type:'reply', signal:'factory.saved.published', rows:[['From','Action output']]}
+      }
+    ],
+    sample:{
+      file:FAC_MD, title:'Recover after a lost publication reply', note:'Lab case. Not a runtime contract. It follows one job across many turns, a wait, an external fault, and a restart. Row links map by signal name. The case text does not name routes.',
+      variants:[{id:'default', label:'Lost reply'},{id:'before-create', label:'before-create'}],
+      phases:[
+        {title:'First run', steps:[
+          {kind:'signal', text:'Submit a Telegram issue.', go:['issue']},
+          {kind:'signal', text:'Run a Harness worker in a local Realm. Check the resulting Git commit.', go:['prepare']},
+          {kind:'wait', text:'Approval pending. The Loom run waits.'},
+          {kind:'signal', text:'Approve the commit with a Jido UI Intent. The Intent resumes the versioned Loom run.', go:['approve']},
+          {kind:'signal', text:'Request a draft pull request through Jido Connect.', go:['publish']},
+          {kind:'fault', text:'GitHub fixture creates the draft. Then it returns a failed reply.', alt:{'before-create':'First request fails before creation.'}}
+        ]},
+        {title:'Restart', steps:[
+          {kind:'stop', text:'Stop the agent. Close the database connection.'},
+          {kind:'stop', text:'Restart both.'}
+        ]},
+        {title:'Recovery', steps:[
+          {kind:'signal', text:'Replay the issue and the approval.', go:['issue','approve']},
+          {kind:'reply', text:'Recover the existing draft. Recovery uses the saved proposal.', alt:{'before-create':'Recovery creates one draft for the approved commit. The retry sends the same provider request again.'}}
+        ]}
+      ],
+      scope:{title:'Recovery scope: agent and database restart', cols:[
+        {h:'Lost', items:['Agent process','Database connection','GitHub reply']},
+        {h:'Kept in Ash and Loom', items:['Original Ash job ID','Original Loom run ID','Saved proposal: title and model request with the checked commit']},
+        {h:'Outside the agent', items:['GitHub and Telegram fixture journal']}
+      ]},
+      checks:[
+        'Original Ash job and Loom run IDs.',
+        'One completed approval and one completed check.',
+        'The checked and reviewed commit.',
+        'One draft.',
+        'One reply to the source conversation.'
+      ],
+      cmd:'mix test lib/jido_lab/journeys/software_delivery/cases/lost_publication_reply'
+    }
+  }
+};
+/*END DATA*/
+
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = s => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>');
+
+const S = {agent:'counter', view:'def', open:null, variant:'default'};
+const agent = () => AGENTS[S.agent];
+const routeById = id => agent().routes.find(r => r.id === id);
+const resById = id => agent().resources.find(r => r.id === id);
+const rowId = id => 'row-' + S.agent + '-' + id;
+const announce = t => { $('#live').textContent = t; };
+
+/* Link to another row. It moves focus. It does not expand. */
+function go(id, extra){
+  const r = routeById(id);
+  return `<button type="button" class="go" data-go="${id}">${esc(r.trigger)}<span class="arr" aria-hidden="true">${extra || '↓'}</span><span class="vh"> row</span></button>`;
+}
+
+/* Agent switcher and profile */
+function renderAgents(){
+  $('#agents').insertAdjacentHTML('beforeend', Object.entries(AGENTS).map(([k,a]) =>
+    `<label><input type="radio" name="agent" value="${k}" ${k===S.agent?'checked':''} aria-label="${esc(a.name)}"><span><span class="full">${esc(a.name)}</span><span class="short" aria-hidden="true">${esc(a.short)}</span><span class="size">${esc(a.size)}</span></span></label>`).join(''));
+}
+function renderProfile(){
+  const a = agent();
+  $('#job').innerHTML = a.job;
+  $('#agent-meta').innerHTML = a.meta.map(([k,v]) => `<div><dt>${esc(k)}</dt><dd>${fmt(v)}</dd></div>`).join('');
+}
+
+/* Flat entry point rows */
+function renderRow(r){
+  const id = rowId(r.id), open = S.open === r.id;
+  const results = r.results.map(x => `<li><span class="g k-${x.k}" aria-hidden="true">${RK[x.k]}</span><span><span class="r-label">${esc(x.label)}</span>${x.note ? ` <span class="r-note">· ${esc(x.note)}</span>` : ''}</span></li>`).join('');
+  const n = r.next;
+  let next = '';
+  if (n.k === 'none') next = `<p class="next k-none">${esc(n.text)}${n.recover ? ` <button type="button" class="go" data-view="trace">Lost reply recovery<span class="arr" aria-hidden="true">→</span><span class="vh"> in sample trace</span></button>` : ''}</p>`;
+  else next = `<p class="next k-${n.k}"><span class="mini">${esc(n.text)}</span>${n.to.map(t => go(t)).join('')}${n.note ? `<span class="r-note muted">${esc(n.note)}</span>` : ''}</p>`;
+  return `<li class="row${open?' open':''}" id="${id}" data-row="${r.id}">
+    <div class="row-line">
+      <div class="entry"><span class="cell-l" aria-hidden="true">Entry point</span>
+        <button type="button" class="trig" aria-expanded="${open}" aria-controls="${id}-x"><b>${esc(r.trigger)}</b><small>${esc(r.from)}</small></button></div>
+      <div class="work"><span class="cell-l" aria-hidden="true">Work</span><span class="vh">Work: </span><p>${fmt(r.work)}</p>${r.steps ? `<span class="steps">${esc(r.steps)}</span>` : ''}</div>
+      <div class="result"><span class="cell-l" aria-hidden="true">Result</span><span class="vh">Result: </span><ul class="res-list">${results}</ul>${next}</div>
+      <span class="chev" aria-hidden="true"></span>
+    </div>
+    <div class="panel-x" id="${id}-x" ${open?'':'hidden'}>${open ? renderTurn(r) : ''}</div>
+  </li>`;
+}
+function renderDef(){
+  const a = agent();
+  const body = a.groups.map(g => {
+    const rs = a.routes.filter(r => r.group === g.name);
+    return `<li class="ghead" aria-hidden="${a.groups.length < 2}"><span class="mini">${esc(g.name)}</span>${g.note ? `<small>${esc(g.note)}</small>` : ''}</li>${rs.map(renderRow).join('')}`;
+  }).join('');
+  $('#body').innerHTML = `<section class="rows-wrap" aria-label="${esc(a.name)} entry points">
+    <div class="cols" aria-hidden="true"><span class="mini">Entry point</span><span class="mini">Work</span><span class="mini">Result and follow-up</span><span></span></div>
+    <ol class="rows">${body}</ol></section>`;
+}
+
+/* One turn: contract and Scratch blocks */
+let uid = 0;
+function uses(b){
+  return (b.res || []).map(id => { const r = resById(id); return `<li><button type="button" class="chip cat-${r.cat}" data-res="${id}"><span aria-hidden="true">${CATS[r.cat].g}</span>${esc(r.name)}</button></li>`; }).join('');
+}
+function block(b, cls){
+  const id = 'b' + (++uid), c = CATS[b.cat];
+  const hasDetail = b.rows && b.rows.length;
+  const lanes = b.lanes ? `<div class="lanes">${b.lanes.map((lane, i) => `<div class="lane"><p class="lane-label">Branch ${i+1}</p><ol class="stack">${lane.map((x, j) => block(x, j === lane.length-1 ? 'last' : '')).join('')}</ol></div>`).join('')}</div><div class="join">⤓ Join</div>` : '';
+  const title = b.signal ? `<code>${esc(b.signal)}</code>` : fmt(b.title);
+  const tagName = hasDetail ? 'button' : 'div';
+  return `<li class="blk cat-${b.cat} ${cls || ''}" id="${id}"><div class="blk-row">
+    <div class="blk-body">${b.cat==='event'?'<span class="beacon" aria-hidden="true"></span>':''}
+      <${tagName} ${hasDetail?`type="button" aria-expanded="false" aria-controls="${id}-d"`:''} class="blk-head">
+        <span class="tag"><span aria-hidden="true">${c.g}</span> ${c.l}</span>
+        <span class="blk-title">${title}</span>
+        ${b.key ? `<code class="blk-key">${esc(b.key)}</code>` : '<span></span>'}
+        ${b.badge ? `<span class="badge">${esc(b.badge)}</span>` : ''}
+        ${hasDetail ? '<span class="bchev" aria-hidden="true"></span>' : '<span></span>'}
+        ${b.sub ? `<span class="blk-sub">${fmt(b.sub)}</span>` : ''}
+      </${tagName}>
+      ${hasDetail ? `<div class="blk-detail" id="${id}-d" hidden><dl class="kv">${b.rows.map(([k,v]) => `<div><dt>${fmt(k)}</dt><dd>${fmt(v)}</dd></div>`).join('')}</dl></div>` : ''}
+      ${lanes}
+      ${b.waitTo ? `<div class="wait-links"><span>Resumes with</span>${go(b.waitTo, '↑')}</div>` : ''}
+    </div>
+    <ul class="uses" aria-label="Uses">${uses(b)}</ul>
+  </div></li>`;
+}
+function renderTurn(r){
+  uid = 0;
+  const items = [block({cat:'event', signal:r.signal, sub:'When this signal arrives', res:r.hatRes})].concat(r.blocks.map(b => block(b)));
+  const endB = r.end.type === 'reply' ? {cat:'reply', signal:r.end.signal, sub:r.end.sub || 'Route reply', rows:r.end.rows} : {cat:'end', title:'End', sub:r.end.sub};
+  items.push(block(endB, r.wait ? '' : 'last'));
+  if (r.wait) items.push(block({cat:'wait', title:r.wait.text, sub:'The turn ends here. A later signal resumes the run.', waitTo:r.wait.to}, 'last'));
+  const contract = [['Signal','`' + r.signal + '`'],['Kind',r.kind]].concat(r.hatRows || [],
+    [['State',r.statePolicy],['Reply', r.end.type === 'reply' ? '`' + r.end.signal + '`' : 'None declared'],['Source',r.src]]);
+  const foot = [];
+  if (r.after) foot.push(`<p><span>${esc(r.after.text)}</span>${r.after.to.map(t => go(t, '↑')).join('')}</p>`);
+  if (r.note) foot.push(`<p class="x-note"><span>${esc(r.note)}</span><button type="button" class="go" data-view="trace">Sample trace<span class="arr" aria-hidden="true">→</span></button></p>`);
+  return `<div class="x-head"><h3>One turn · runtime contract</h3><button type="button" class="btn" data-allsteps>Open all steps</button></div>
+    <div class="contract"><dl>${contract.map(([k,v]) => `<div><dt>${fmt(k)}</dt><dd>${fmt(v)}</dd></div>`).join('')}</dl></div>
+    <ol class="stack" aria-label="Steps for ${esc(r.trigger)}">${items.join('')}</ol>
+    ${foot.length ? `<div class="x-foot">${foot.join('')}</div>` : ''}`;
+}
+
+function setOpen(id){
+  const prev = S.open;
+  S.open = prev === id ? null : id;
+  [prev, S.open].filter(Boolean).forEach(x => {
+    const li = document.getElementById(rowId(x)); if (!li) return;
+    const on = S.open === x, panel = $('.panel-x', li);
+    li.classList.toggle('open', on);
+    $('.trig', li).setAttribute('aria-expanded', String(on));
+    panel.innerHTML = on ? renderTurn(routeById(x)) : '';
+    panel.hidden = !on;
+  });
+}
+function focusRow(id){
+  if (S.view !== 'def'){ S.view = 'def'; renderMain(); }
+  const li = document.getElementById(rowId(id)); if (!li) return;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  li.scrollIntoView({block:'start', behavior: reduce ? 'auto' : 'smooth'});
+  $('.trig', li).focus({preventScroll:true});
+  li.classList.add('flash'); setTimeout(() => li.classList.remove('flash'), 1600);
+  announce('Moved to ' + routeById(id).trigger + ' row.');
+}
+
+/* Sample trace (across turns) */
+function renderTrace(){
+  const sm = agent().sample;
+  let n = 0;
+  const kinds = {signal:'Signal', wait:'Wait', fault:'External fault', stop:'Restart', grant:'Grant change', reply:'Result', note:'Note', event:'External event'};
+  const variant = sm.variants ? `<fieldset class="seg variant" id="variant"><legend>Case</legend>${sm.variants.map(v => `<label><input type="radio" name="variant" value="${v.id}" ${v.id===S.variant?'checked':''}><span>${v.id==='before-create'?`<code>${esc(v.label)}</code>`:esc(v.label)}</span></label>`).join('')}</fieldset>` : '';
+  const phases = sm.phases.map(p => `<section class="phase"><h3>${esc(p.title)}</h3><ol class="timeline">${p.steps.map(s => {
+    n++;
+    const text = (s.alt && s.alt[S.variant]) || s.text;
+    return `<li class="tl k-${s.kind}" data-n="${n}"><span class="tl-kind">${kinds[s.kind]}</span><p>${fmt(text)}</p>${s.go ? `<div class="tl-go">${s.go.map(x => go(x, '→')).join('')}</div>` : ''}</li>`;
+  }).join('')}</ol></section>`).join('');
+  const scope = sm.scope ? `<h3 class="scope-title">${esc(sm.scope.title)}</h3><div class="scope">${sm.scope.cols.map(c => `<section><h4>${esc(c.h)}</h4><ul>${c.items.map(i => `<li>${fmt(i)}</li>`).join('')}</ul></section>`).join('')}</div>` : '';
+  $('#body').innerHTML = `<header class="trace-head">
+      <p class="eyebrow"><span class="pill sample">Sample trace</span><span class="pill">Across turns</span><span>${esc(sm.file)}</span></p>
+      <h2>${esc(sm.title)}</h2><p>${fmt(sm.note)}</p></header>
+    ${variant}${phases}${scope}
+    <section class="checks"><h3>Checks</h3><ul>${sm.checks.map(c => `<li>${fmt(c)}</li>`).join('')}</ul></section>
+    ${sm.cmd ? `<p class="cmd"><span class="mini">Lab command</span><code>${esc(sm.cmd)}</code></p>` : ''}`;
+}
+
+/* Resources */
+function renderResources(){
+  $('#res').innerHTML = agent().resources.map(r => `<li id="res-${r.id}">
+    <button type="button" class="res-head" aria-expanded="false" aria-controls="res-${r.id}-b">
+      <span class="sw cat-${r.cat}" aria-hidden="true"></span>
+      <span>${esc(r.name)}<small>${esc(r.sub)}</small></span>
+      <span class="bchev" aria-hidden="true"></span>
+    </button>
+    <div class="res-body" id="res-${r.id}-b" hidden><span class="vh">${CATS[r.cat].l}.</span>
+      <dl class="kv">${r.rows.map(([k,v]) => `<div><dt>${fmt(k)}</dt><dd>${fmt(v)}</dd></div>`).join('')}</dl>
+      <p class="res-src">Source: ${esc(r.src)}</p>
+    </div></li>`).join('');
+}
+function renderLegend(){
+  $('#legend').innerHTML = ['event','state','chat','memory','realm','model','action','par','wait','reply'].map(k => `<li><span class="sw cat-${k}" aria-hidden="true"></span><span aria-hidden="true">${CATS[k].g}</span> ${CATS[k].l}</li>`).join('');
+}
+function toggle(btn, force){
+  const open = force !== undefined ? force : btn.getAttribute('aria-expanded') !== 'true';
+  btn.setAttribute('aria-expanded', String(open));
+  const p = document.getElementById(btn.getAttribute('aria-controls'));
+  if (p) p.hidden = !open;
+}
+function openResource(id){
+  const li = document.getElementById('res-' + id); if (!li) return;
+  const btn = $('.res-head', li);
+  toggle(btn, true);
+  li.classList.add('flash'); setTimeout(() => li.classList.remove('flash'), 1200);
+  li.scrollIntoView({block:'nearest'});
+  btn.focus({preventScroll:true});
+}
+
+function renderMain(){
+  $('input[name=view][value="' + S.view + '"]').checked = true;
+  if (S.view === 'def') renderDef(); else renderTrace();
+}
+function setAgent(k){
+  if (!AGENTS[k]) return;
+  S.agent = k; S.open = null; S.variant = 'default';
+  $('input[name=agent][value="' + k + '"]').checked = true;
+  renderProfile(); renderResources(); renderMain();
+}
+
+/* Events */
+$('#agents').addEventListener('change', e => { if (e.target.name === 'agent'){ setAgent(e.target.value); history.replaceState(null, '', '#' + S.agent); } });
+$('#view').addEventListener('change', e => { S.view = e.target.value; renderMain(); });
+$('#theme').addEventListener('change', e => { document.documentElement.dataset.theme = e.target.value; });
+$('#body').addEventListener('change', e => { if (e.target.name === 'variant'){ S.variant = e.target.value; renderTrace(); $('input[name=variant]:checked').focus(); } });
+document.addEventListener('click', e => {
+  const t = e.target;
+  const g = t.closest('[data-go]'); if (g){ focusRow(g.dataset.go); return; }
+  const v = t.closest('[data-view]'); if (v){ S.view = v.dataset.view; renderMain(); $('input[name=view]:checked').focus(); return; }
+  const ch = t.closest('[data-res]'); if (ch){ openResource(ch.dataset.res); return; }
+  const all = t.closest('[data-allsteps]');
+  if (all){ const heads = $$('.blk-head[aria-controls]', all.closest('.panel-x')); const open = heads.some(h => h.getAttribute('aria-expanded') !== 'true'); heads.forEach(h => toggle(h, open)); all.textContent = open ? 'Close all steps' : 'Open all steps'; return; }
+  const head = t.closest('.blk-head[aria-controls], .res-head'); if (head){ toggle(head); return; }
+  const line = t.closest('.row-line');
+  if (line && !t.closest('a, input, label')){ const id = line.parentElement.dataset.row; setOpen(id); if (!t.closest('.trig')) $('.trig', line).focus({preventScroll:true}); }
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !S.open) return;
+  const li = document.getElementById(rowId(S.open));
+  if (li && li.contains(document.activeElement)){ const id = S.open; setOpen(id); $('.trig', li).focus(); }
+});
+
+/* Init */
+if (matchMedia('(prefers-color-scheme: light)').matches){
+  document.documentElement.dataset.theme = 'light';
+  $('input[name=theme][value=light]').checked = true;
+}
+renderAgents(); renderLegend();
+setAgent(AGENTS[location.hash.slice(1)] ? location.hash.slice(1) : 'counter');
+</script>
+</body>
+</html>

@@ -1,0 +1,941 @@
+<!doctype html>
+<!-- Proposed prototype. Last reviewed 2026-11-24. See the source links for each fixture. -->
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Agent definitions · Jido Studio</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --studio-bg: #0a0a0a;
+      --studio-sidebar: #0e0e0e;
+      --studio-card: #121212;
+      --studio-active: #1c1d1c;
+      --studio-border: #2b2d2b;
+      --studio-text: #f0f0ee;
+      --studio-muted: #a6aaa6;
+      --studio-primary: #00ff80;
+      --signal: #69dcfb;
+      --route: #ffca72;
+      --action: #71e7ac;
+      --state: #d1b6ff;
+      --reply: #ffadd1;
+      --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --studio-bg: #fcf9f4;
+      --studio-sidebar: #f6f2ec;
+      --studio-card: #fff;
+      --studio-active: #f0ede8;
+      --studio-border: #ded9d1;
+      --studio-text: #231e1a;
+      --studio-muted: #625b52;
+      --studio-primary: #087747;
+      --signal: #006d85;
+      --route: #885300;
+      --action: #087747;
+      --state: #67439b;
+      --reply: #953e68;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--studio-bg); color: var(--studio-text); font: 14px/1.5 system-ui, sans-serif; }
+    h1, h2, h3, p, dl, dd, ul { margin: 0; }
+    code { font: 0.9em/1.45 var(--mono); overflow-wrap: anywhere; }
+    button, select { color: inherit; font: inherit; }
+    button, summary, select { cursor: pointer; }
+    a { color: var(--signal); }
+    :focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
+
+    [hidden] { display: none !important; }
+    .frame { max-width: 78rem; margin-inline: auto; padding: 1.15rem clamp(0.875rem, 3vw, 2.5rem) 2rem; }
+    .topbar, .heading, .panel-title, .overview-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+    }
+    .topbar { padding-block-end: 0.82rem; border-block-end: 1px solid var(--studio-border); }
+    .brand { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 650; }
+    .brand-mark { display: inline-block; width: 0.84rem; height: 0.84rem; border: 2px solid var(--studio-primary); border-radius: 0.26rem; rotate: -12deg; }
+    .brand-area { color: var(--studio-muted); font-size: 0.81rem; font-weight: 500; }
+    .theme, .view-switch, .related button, .trace-link {
+      padding: 0.32rem 0.58rem;
+      border: 1px solid var(--studio-border);
+      border-radius: 0.4rem;
+      background: var(--studio-card);
+      font-size: 0.77rem;
+      font-weight: 600;
+    }
+    :is(.theme, .view-switch, .related button, .trace-link):hover { border-color: var(--studio-muted); background: var(--studio-active); }
+    .agent-picker { display: flex; flex-wrap: wrap; gap: 0.3rem; padding-block: 0.66rem; border-block-end: 1px solid var(--studio-border); }
+    .agent-picker button {
+      padding: 0.32rem 0.56rem;
+      border: 1px solid transparent;
+      border-radius: 0.4rem;
+      background: transparent;
+      color: var(--studio-muted);
+      font-size: 0.81rem;
+      font-weight: 620;
+    }
+    .agent-picker button:hover { background: var(--studio-active); }
+    .agent-picker button[aria-pressed="true"] { border-color: var(--studio-border); background: var(--studio-active); color: var(--studio-text); }
+    .mobile-agent { display: none; }
+    .heading { margin-block: 1.65rem 1.45rem; align-items: flex-start; }
+    .heading > div { min-width: 0; }
+    h1 { font-size: clamp(1.6rem, 4vw, 2.5rem); line-height: 1.12; letter-spacing: -0.045em; }
+    h2 { font-size: 0.9rem; }
+    .subtitle { margin-top: 0.35rem; color: var(--studio-muted); font-size: 0.93rem; }
+    .overview-title { margin-bottom: 0.65rem; }
+    .overview-title h2 { font-size: 1rem; }
+    .overview-title .count { color: var(--studio-muted); font: 0.75rem var(--mono); }
+
+    .entry-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.2fr) minmax(0, 1.06fr);
+      grid-template-areas: "trigger work result";
+      gap: 0.65rem 1.35rem;
+    }
+    .column-head {
+      color: var(--studio-muted);
+      font-size: 0.74rem;
+      font-weight: 650;
+      border-block: 1px solid var(--studio-border);
+      padding: 0.45rem 0;
+    }
+    .column-entry, .trigger { grid-area: trigger; }
+    .column-work, .work { grid-area: work; }
+    .column-result, .result { grid-area: result; }
+    .column-compact { display: none; }
+    .entry { border-block-end: 1px solid var(--studio-border); }
+    .entry > .entry-grid { align-items: start; padding-block: 0.72rem; }
+    .entry:has(.trigger[aria-expanded="true"]) > .entry-grid { background: color-mix(in srgb, var(--studio-active) 52%, transparent); }
+    .trigger {
+      justify-self: start;
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 0.82rem minmax(0, 1fr);
+      align-items: baseline;
+      text-align: start;
+      gap: 0.44rem;
+      padding: 0.18rem 0.2rem 0.18rem 0;
+      border: 0;
+      border-radius: 0.25rem;
+      background: transparent;
+      color: var(--studio-text);
+      font-weight: 700;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .trigger:hover { color: var(--signal); }
+    .trigger .chevron { transform: translateY(-0.1rem); }
+    .trigger[aria-expanded="true"] .chevron { rotate: 45deg; }
+    .trigger-origin { display: block; margin-top: 0.17rem; color: var(--studio-muted); font-size: 0.72rem; font-weight: 500; }
+    .work { padding-top: 0.13rem; color: var(--studio-muted); font-size: 0.84rem; }
+    .result { display: grid; gap: 0.22rem; min-width: 0; padding-top: 0.04rem; }
+    .result-list { display: flex; flex-wrap: wrap; gap: 0.2rem 0.64rem; padding: 0; list-style: none; }
+    .result-list li { display: flex; align-items: baseline; gap: 0.34rem; color: var(--studio-text); font-weight: 650; font-size: 0.82rem; }
+    .result-list li::before { content: ""; display: inline-block; width: 0.4rem; height: 0.4rem; border-radius: 50%; flex: none; background: var(--studio-primary); }
+    .handoff { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.38rem; font-size: 0.77rem; line-height: 1.4; }
+    .terminal { color: var(--studio-muted); font-size: 0.77rem; }
+    .handoff-label { color: var(--route); }
+    .handoff button { min-width: 0; padding: 0; border: 0; background: transparent; color: var(--signal); font-size: inherit; text-align: start; text-decoration: underline; text-underline-offset: 0.14em; }
+    .handoff button:hover { color: var(--studio-text); }
+
+    .entry-detail {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.55fr);
+      grid-template-areas: "steps metadata";
+      margin-bottom: 0.65rem;
+      border: 1px solid var(--studio-border);
+      border-radius: 0.5rem;
+      background: var(--studio-sidebar);
+      overflow: hidden;
+    }
+    .turn-steps {
+      grid-area: steps;
+      min-width: 0;
+      padding: clamp(0.85rem, 2vw, 1.3rem);
+      background-image: radial-gradient(circle, color-mix(in srgb, var(--studio-muted) 22%, transparent) 1px, transparent 1px);
+      background-size: 16px 16px;
+    }
+    .turn-meta { grid-area: metadata; min-width: 0; padding: 0.9rem; border-inline-start: 1px solid var(--studio-border); background: var(--studio-card); }
+    .turn-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 0.45rem; }
+    .turn-heading h3, .turn-meta h3 { margin-bottom: 0.58rem; color: var(--studio-text); font-size: 0.86rem; }
+    .turn-signal, .contract-link { display: none; }
+    .turn-meta > .facts { margin-bottom: 1rem; }
+    .turn-meta > .facts dd { font-family: var(--mono); font-size: 0.74rem; }
+    .stack, .resource-list { display: grid; gap: 0.4rem; }
+    .stack { gap: 0.33rem; }
+    .step-uses { display: flex; flex-wrap: wrap; gap: 0.22rem 0.38rem; margin-top: 0.28rem; }
+    .step-uses span { border-radius: 0.22rem; background: var(--studio-card); padding: 0.02rem 0.3rem; color: var(--studio-muted); font-size: 0.68rem; }
+    .block[open] > summary .step-uses { display: none; }
+
+    .trace { padding: 0.85rem 1rem 1.1rem; border: 1px solid var(--studio-border); border-radius: 0.5rem; background: var(--studio-card); }
+    .trace > p { margin-top: 0.22rem; color: var(--studio-muted); font-size: 0.82rem; }
+    .trace-events { list-style: none; padding: 0; margin: 0.85rem 0 0; }
+    .trace-events li { display: grid; grid-template-columns: minmax(4.5rem, 0.22fr) minmax(0, 1fr) auto; align-items: start; gap: 0.55rem; padding-block: 0.6rem; border-top: 1px solid var(--studio-border); }
+    .trace-events strong { color: var(--studio-text); font-size: 0.82rem; }
+    .trace-events p { color: var(--studio-muted); font-size: 0.79rem; }
+    .event-kind { color: var(--route); font-size: 0.74rem; font-weight: 650; }
+    .trace-link { margin-top: 0.12rem; }
+
+    .block {
+      --tone: var(--action);
+      --block-bg: color-mix(in srgb, var(--tone) 11%, var(--studio-card));
+      --block-border: color-mix(in srgb, var(--tone) 40%, var(--studio-border));
+      position: relative;
+      min-width: 0;
+      border: 1px solid var(--block-border);
+      background: var(--block-bg);
+      border-radius: 0.53rem;
+    }
+    [data-tone="signal"] { --tone: var(--signal); }
+    [data-tone="route"] { --tone: var(--route); }
+    [data-tone="state"] { --tone: var(--state); }
+    [data-tone="reply"] { --tone: var(--reply); }
+    [data-tone="action"] { --tone: var(--action); }
+    .block:not(:last-child)::after {
+      position: absolute;
+      z-index: 1;
+      inset: auto auto -0.33rem 1.2rem;
+      width: 1.55rem;
+      height: 0.4rem;
+      background: var(--block-border);
+      clip-path: polygon(0 0, 100% 0, 83% 100%, 17% 100%);
+      content: "";
+      pointer-events: none;
+    }
+    .block.hat {
+      border-radius: 1.35rem 1.35rem 0.53rem 0.53rem;
+      --block-bg: color-mix(in srgb, var(--tone) 18%, var(--studio-card));
+    }
+    summary { list-style: none; }
+    summary::-webkit-details-marker { display: none; }
+    .block > summary, .resource > summary {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 0.57rem;
+      min-height: 3.13rem;
+      padding: 0.56rem 0.75rem;
+      border-radius: inherit;
+    }
+    .block > summary:hover { background: color-mix(in srgb, var(--tone) 7%, transparent); }
+    .block-label { min-width: 0; }
+    .block-label strong { display: block; font-size: 0.86rem; line-height: 1.33; overflow-wrap: anywhere; }
+    .block-label code { display: block; margin-top: 0.1rem; color: var(--studio-muted); font-size: 0.72rem; }
+    .verb {
+      padding: 0.18rem 0.33rem;
+      border-radius: 0.24rem;
+      background: color-mix(in srgb, var(--tone) 14%, transparent);
+      color: var(--tone);
+      font: 650 0.62rem var(--mono);
+      white-space: nowrap;
+    }
+    .chevron { width: 0.45rem; height: 0.45rem; border-right: 1.5px solid var(--studio-muted); border-bottom: 1.5px solid var(--studio-muted); rotate: -45deg; margin-inline: 0.12rem; }
+    details[open] > summary .chevron { rotate: 45deg; }
+    .block-body {
+      display: grid;
+      gap: 0.65rem;
+      padding: 0.72rem 0.75rem 0.78rem;
+      border-block-start: 1px solid var(--block-border);
+      font-size: 0.82rem;
+    }
+    .nested {
+      display: grid;
+      gap: 0.38rem;
+      padding-inline-start: 0.75rem;
+      border-inline-start: 2px solid var(--block-border);
+    }
+    .nested .block::after { display: none; }
+    .facts { display: grid; gap: 0.4rem; }
+    .facts div { display: grid; grid-template-columns: minmax(4.5rem, 0.4fr) minmax(0, 1fr); gap: 0.4rem; }
+    .facts dt { color: var(--studio-muted); font-size: 0.75rem; }
+    .facts dd { min-width: 0; overflow-wrap: anywhere; }
+    .resource-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem; }
+    .resource-links > span { color: var(--studio-muted); font-size: 0.75rem; }
+    .resource-link {
+      padding: 0.12rem 0.43rem;
+      border: 1px solid var(--studio-border);
+      border-radius: 1rem;
+      background: var(--studio-card);
+      color: var(--signal);
+      font-size: 0.74rem;
+    }
+    .resource-link:hover { border-color: var(--signal); }
+
+    .outcome {
+      margin-top: 0.95rem;
+      padding: 0.67rem 0.75rem;
+      border-radius: 0.5rem;
+      border: 1px solid var(--studio-border);
+      background: var(--studio-card);
+      color: var(--studio-muted);
+      font-size: 0.8rem;
+    }
+    .outcome strong { color: var(--studio-text); }
+    .outcome + .block { margin-top: 0.55rem; }
+    .related { margin-top: 0.85rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem; }
+    .related > span { color: var(--studio-muted); font-size: 0.77rem; margin-inline-end: 0.18rem; }
+
+    .resource {
+      border: 1px solid var(--studio-border);
+      border-radius: 0.44rem;
+      background: var(--studio-sidebar);
+    }
+    .resource > summary { min-height: 2.68rem; padding: 0.42rem 0.55rem; }
+    .resource > summary:hover { background: var(--studio-active); }
+    .resource > summary strong { font-size: 0.79rem; line-height: 1.25; overflow-wrap: anywhere; }
+    .resource-marker { width: 0.48rem; height: 0.48rem; border-radius: 0.15rem; background: var(--tone, var(--studio-muted)); }
+    .resource-body { display: grid; gap: 0.5rem; padding: 0.58rem 0.55rem; border-block-start: 1px solid var(--studio-border); font-size: 0.77rem; }
+
+    .footer { padding: 0.7rem 0.1rem; color: var(--studio-muted); font-size: 0.78rem; }
+    .footer ul { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; padding-left: 0; list-style: none; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+    @media (max-width: 46rem) {
+      .agent-picker { display: none; }
+      .mobile-agent { display: flex; align-items: center; gap: 0.58rem; margin-top: 0.68rem; }
+      .mobile-agent > span { color: var(--studio-muted); font-size: 0.76rem; }
+      .mobile-agent select { flex: 1; min-width: 0; padding: 0.33rem 0.38rem; border: 1px solid var(--studio-border); border-radius: 0.4rem; background: var(--studio-card); font-size: 0.82rem; }
+      .heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; margin-block: 0.94rem 0.88rem; gap: 0.28rem 0.45rem; }
+      .heading > div { display: contents; }
+      #actor-name { grid-column: 1; grid-row: 1; align-self: center; overflow-wrap: anywhere; }
+      .heading .view-switch { grid-column: 2; grid-row: 1; }
+      .subtitle { grid-column: 1 / -1; grid-row: 2; margin-top: 0; font-size: 0.83rem; }
+      .overview-title { margin-bottom: 0.35rem; }
+      .entry-grid { grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr); grid-template-areas: "trigger result" "trigger work"; gap: 0.21rem 0.65rem; }
+      .column-head { grid-template-areas: "trigger result"; }
+      .column-work, .column-full { display: none; }
+      .column-compact { display: inline; }
+      .entry > .entry-grid { padding-block: 0.58rem; }
+      .trigger { font-size: 0.83rem; gap: 0.34rem; }
+      .work { font-size: 0.74rem; padding-top: 0.02rem; }
+      .result-list li { font-size: 0.77rem; }
+      .handoff { font-size: 0.73rem; }
+      .entry-detail { grid-template-columns: minmax(0, 1fr); grid-template-areas: "steps" "metadata"; }
+      .turn-heading h3 { margin-bottom: 0.12rem; }
+      .turn-signal { display: block; margin-bottom: 0.55rem; color: var(--studio-muted); font-size: 0.72rem; }
+      .contract-link { display: inline-block; border: 0; padding: 0; background: transparent; color: var(--signal); font-size: 0.73rem; text-decoration: underline; text-underline-offset: 0.13rem; }
+      .turn-meta { border-inline-start: 0; border-block-start: 1px solid var(--studio-border); }
+      .turn-meta > .facts { margin-bottom: 0.75rem; }
+      .resource-list { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+      .trace-events li { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+      .trace-link { justify-self: start; }
+    }
+
+    @media (max-width: 26rem) {
+      .topbar { gap: 0.4rem; }
+      .brand-area { display: none; }
+      .block > summary { gap: 0.42rem; padding-inline: 0.58rem; }
+      .block-body { padding-inline: 0.58rem; }
+      .resource-list { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    @media (forced-colors: active) {
+      .agent-picker button[aria-pressed="true"], .block, .resource, .verb { border: 1px solid ButtonText; }
+      .result-list li::before { background: Highlight; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Jido Studio <span class="brand-area">/ Agent definitions</span></div>
+      <button type="button" class="theme" id="theme-toggle" aria-pressed="false">Light theme</button>
+    </header>
+
+    <main>
+      <div id="agents" class="agent-picker" role="group" aria-label="Choose an agent"></div>
+      <label class="mobile-agent"><span>Agent</span><select id="agent-select"></select></label>
+
+      <div class="heading">
+        <div>
+          <h1 id="actor-name"></h1>
+          <p class="subtitle" id="actor-job"></p>
+        </div>
+        <button type="button" class="view-switch" id="trace-toggle" aria-controls="sample-trace" aria-expanded="false">Sample trace</button>
+      </div>
+
+      <section id="definition" aria-labelledby="entry-heading">
+        <div class="overview-title"><h2 id="entry-heading">Entry points</h2><span class="count" id="route-count"></span></div>
+        <div class="column-head entry-grid" aria-hidden="true">
+          <span class="column-entry">Entry point</span>
+          <span class="column-work">Work</span>
+          <span class="column-result"><span class="column-full">Result</span><span class="column-compact">Result / work</span></span>
+        </div>
+        <div id="entries"></div>
+      </section>
+
+      <section class="trace" id="sample-trace" aria-labelledby="trace-heading" hidden></section>
+
+      <footer class="footer"><ul id="sources"></ul></footer>
+      <p class="sr-only" id="selection-status" role="status"></p>
+      <noscript><p>Enable JavaScript to open the agent definitions.</p></noscript>
+    </main>
+  </div>
+  <script>
+    const block = (tone, verb, title, value, detail = {}) => ({ tone, verb, title, value, ...detail });
+
+    const reply = (signal, description) =>
+      block("reply", "REPLY", "Return a signal reply", signal, {
+        description, facts: [["Payload", "Action or flow output"]]
+      });
+
+    const lab = "../../../../jido_lab/lib/jido_lab/journeys/";
+    const chatPayload = [
+      ["Schema", "Jido.Chat.Signal.MessageReceived"],
+      ["item_id, delivery_id, room_id, message_id", "Nonempty strings"],
+      ["text", "String"],
+      ["sender", "Map with a nonempty id"],
+      ["thread_id", "Optional nonempty string or null"]
+    ];
+    const fixtures = {
+      counter: {
+        name: "Demo Counter",
+        job: "Adds an amount to a saved count and replies with the new value.",
+        source: "../../studio_playground/lib/studio_playground/demo_counter.ex",
+        sample: {
+          title: "Increment from zero",
+          events: [["Signal", "Increment counter", "Send the default amount of 1 while count is 0.", "demo.counter.increment"],
+            ["Turn result", "Count saved and reply sent", "The action returns 1. Both the saved count and the reply use that value."]]
+        },
+        resources: {
+          count: { name: "Counter state", tone: "state", description: "The agent owns one integer field.", facts: [["Field", "count"], ["Initial value", "0"]] }
+        },
+        routes: [{
+          signal: "demo.counter.increment", name: "Increment counter",
+          work: "Add the amount to the count. Both results use that value.",
+          results: ["Count saved", "Updated count sent in reply"],
+          input: [["amount", "Integer 1–10 · default 1"]],
+          blocks: [
+            block("action", "RUN", "Add amount to the current count", "increment_demo_counter", {
+              description: "Read the current count, add the signal amount, and return the new count.",
+              facts: [["Reads", "state.count"], ["Returns", "%{count: count + amount}"]], uses: ["count"]
+            }),
+            block("route", "RESULT", "Use the new count", "One output · two destinations", {
+              open: true,
+              children: [
+                block("state", "COMMIT", "Update state.count", "output.count", {
+                  description: "The route projects the action output into agent state.", uses: ["count"]
+                }),
+                reply("demo.counter.updated", "The reply payload contains the same new count.")
+              ]
+            })
+          ],
+          response: "For an initial count of 0 and the default amount of 1, the committed count and the reply payload both contain 1."
+        }]
+      },
+
+      team: {
+        name: "Team Communication",
+        job: "Answers Telegram questions with permitted evidence and records message delivery.",
+        source: lab + "team_communication/agent.ex",
+        caseSource: lab + "team_communication/cases/withdraw_evidence/README.md",
+        sample: {
+          title: "Evidence grant revoked during an answer",
+          events: [["Signal", "Index evidence", "Save the confirmed source in Realm and Memory.", "conversation.evidence.index"],
+            ["Signal", "Telegram message received", "Check the grant and recall permitted evidence.", "jido.chat.message.received"],
+            ["External event", "Grant revoked", "Access changes before the model answer is ready. The delivery check sends a safe reply."],
+            ["Later signal", "Chat delivery completed", "Store the delivery receipt in Memory.", "jido.chat.command.send_message.completed"],
+            ["Replay", "Telegram message received", "After restart, the replay supplies zero evidence from the revoked grant.", "jido.chat.message.received"]]
+        },
+        resources: {
+          chat: { name: "Telegram Chat", tone: "signal", description: "The questions connection supplies the normalized Chat signal and sends the reply.", facts: [["Connection", "questions"], ["Rooms", "42 and 43"]] },
+          grant: { name: "Ash room grant", tone: "route", description: "The flow checks the current grant before recall and checks it again before delivery.", facts: [["Scope", "One conversation"], ["Storage in case", "SQLite"]] },
+          evidence: { name: "Memory evidence", tone: "state", description: "An external collection supplies evidence through the answer_evidence grant.", facts: [["Fields exposed", "title and url"], ["Read limit", "1"]] },
+          receipts: { name: "Memory delivery receipts", tone: "state", description: "A separate completion signal stores the message and room identifiers.", facts: [["Collection", "deliveries"], ["Maximum entries", "1"]] },
+          realm: { name: "Realm evidence copy", tone: "state", description: "The Lab host supplies a local Realm for evidence files. Access to existing bytes still requires the current grant.", facts: [["Case", "Withdraw remembered evidence"]] },
+          ai: { name: "Jido AI session", tone: "action", description: "The answer flow uses a fresh Session and Thread for each question. The case supplies scripted inference.", facts: [["Model calls", "1"], ["Tool rounds", "0"]] },
+          connect: { name: "GitHub Connect", tone: "signal", description: "Evidence indexing reads provider data through a fixture connection.", facts: [["Source", "GitHub issue listing"]] },
+          ui: { name: "Jido UI projection", tone: "reply", description: "The case checks the rebuilt view after revocation and replay.", facts: [["Shows", "Current evidence status"]] }
+        },
+        routes: [
+          {
+            signal: "jido.chat.message.received", name: "Telegram message received", origin: "Chat event",
+            work: "Check access, recall evidence, and send an answer.", results: ["Answer ready"],
+            handoff: { label: "Later event", signal: "jido.chat.command.send_message.completed" },
+            input: chatPayload, context: [["Chat connection", "questions"]],
+            blocks: [
+              block("route", "CHECK", "Check the conversation grant", "check_current_grant", {
+                description: "Use the room ID to check whether evidence access is active.", uses: ["grant"]
+              }),
+              block("state", "RECALL", "Recall permitted evidence", "recall_evidence", {
+                description: "Recall uses answer_evidence and the result of the grant check.", uses: ["evidence", "grant"]
+              }),
+              block("action", "RUN", "Generate an answer", "generate_answer", {
+                description: "Use only the permitted inputs. Start a fresh Session and Thread for this question.", uses: ["ai"]
+              }),
+              block("reply", "SEND", "Check again and send the Chat reply", "deliver_answer", {
+                description: "Check the grant at delivery. If access changed while inference ran, send a safe reply. Chat delivery reports completion in a later signal.",
+                uses: ["grant", "chat"], related: ["jido.chat.command.send_message.completed"]
+              }),
+              reply("conversation.answer.ready", "The route returns the flow output. Chat sends the user-facing message through its delivery directive.")
+            ],
+            response: "The route returns conversation.answer.ready. The Chat transport sends the answer to the source conversation.",
+            alternative: {
+              label: "Grant revoked",
+              response: "If the grant is revoked before delivery, Chat sends the safe reply. On replay after restart, inference receives zero evidence for that conversation."
+            },
+            related: ["jido.chat.command.send_message.completed", "conversation.evidence.index"]
+          },
+          {
+            signal: "jido.chat.command.send_message.completed", name: "Chat delivery completed", origin: "Chat event",
+            work: "Store the delivered message ID and room in Memory.", results: ["Receipt stored"],
+            input: [["Schema", "Jido.Chat.SendMessage.output_schema()"], ["request_id", "String"], ["result.id, result.room_id", "Strings"]],
+            blocks: [block("state", "STORE", "Remember the delivery receipt", "deliveries", {
+              description: "Use the request ID as the receipt key and store the delivered message ID and room.", uses: ["chat", "receipts"]
+            })],
+            response: "The route stores the delivery receipt in Memory.",
+            related: ["jido.chat.message.received"]
+          },
+          {
+            signal: "conversation.evidence.index", name: "Index evidence",
+            work: "Read the source and save copies in Realm and Memory.", results: ["Evidence indexed"],
+            input: [["Payload", "Empty map"]], context: [["Bindings", "Provider connection, Realm, and scoped storage"]],
+            blocks: [
+              block("action", "READ", "Read source evidence", "Evidence.index", {
+                description: "The case finds the source on page two. An incomplete listing leaves indexing pending.", uses: ["connect"]
+              }),
+              block("state", "STORE", "Index evidence and keep a Realm copy", "Current source revision", {
+                description: "Write the evidence copy and store the scoped Memory record after the source has been confirmed.", uses: ["evidence", "realm"]
+              }),
+              reply("conversation.evidence.indexed", "The reply describes the indexing result.")
+            ],
+            response: "The confirmed source can be recalled by a conversation with a current grant.",
+            related: ["jido.chat.message.received", "conversation.evidence.read"]
+          },
+          {
+            signal: "conversation.evidence.read", name: "Read the Realm copy",
+            work: "Check access and read the saved evidence.", results: ["Evidence found when permitted"],
+            input: [["Payload", "Empty map"]], context: [["Bindings", "Realm and current conversation grant"]],
+            blocks: [
+              block("route", "CHECK", "Check access to the stored copy", "Evidence.read_copy", {
+                description: "Access requires the current room grant. The old file can still exist after access is withdrawn.", uses: ["grant", "realm"]
+              }),
+              reply("conversation.evidence.found", "A permitted read returns the stored evidence.")
+            ],
+            response: "A current grant permits the read. The Lab checks that the revoked conversation cannot read the stale copy.",
+            related: ["conversation.evidence.index", "jido.chat.message.received"]
+          }
+        ]
+      },
+
+      factory: {
+        name: "Software Factory",
+        job: "Turns Telegram requests into checked, approved draft pull requests.",
+        source: lab + "software_delivery/agent.ex",
+        caseSource: lab + "software_delivery/cases/lost_publication_reply/README.md",
+        sample: {
+          title: "Recover a draft after a lost publication reply",
+          events: [["Signal", "Telegram issue received", "Record the source conversation and create the job.", "jido.chat.message.received"],
+            ["Signal", "Prepare candidate", "Run the worker in Realm, verify the commit, and record the candidate.", "factory.candidate.prepare"],
+            ["Wait", "Approval pending", "The Loom run waits for approval of the checked commit."],
+            ["Signal", "Approve candidate", "A Jido UI intent supplies the job and commit.", "factory.candidate.approve"],
+            ["Signal", "Publish draft", "Send the draft request for the approved commit.", "factory.draft.publish"],
+            ["External event", "Provider reply lost", "The provider creates the draft. The first publication turn returns an error."],
+            ["Restart", "Recover the saved job", "Restart the agent and reopen SQLite. Replay the issue and approval."],
+            ["Replay", "Publish draft", "Find the existing draft and record one Chat receipt.", "factory.draft.publish"]]
+        },
+        resources: {
+          chat: { name: "Telegram Chat", tone: "signal", description: "The issues connection admits requests and sends draft publication receipts.", facts: [["Connection", "issues"], ["Room", "42"]] },
+          realm: { name: "Realm workspace", tone: "state", description: "The host supplies a local Workspace for source changes and the committed candidate.", facts: [["Binding", "checkout"], ["Evidence", "Candidate commit and bytes"]] },
+          harness: { name: "Harness worker", tone: "action", description: "The case runs a fixture ACP worker and verifies its recorded results.", facts: [["Protocol", "ACP"], ["Output", "Worker result and run ID"]] },
+          ash: { name: "Ash job store", tone: "state", description: "SQLite stores the original job, candidate, checks, approval, draft, and Chat receipt.", facts: [["Recovery", "Reopen the existing job"]] },
+          loom: { name: "Loom approval run", tone: "route", description: "A versioned run holds the approval wait for the checked commit.", facts: [["Continues on", "factory.candidate.approve"]] },
+          ui: { name: "Jido UI Intent", tone: "signal", description: "The approved intent carries the job and commit to the approval route.", facts: [["Fields", "job and commit"]] },
+          github: { name: "GitHub Connect", tone: "reply", description: "Publication finds or creates a draft for the checked commit.", facts: [["Recovery check", "One draft for the approved commit"]] },
+          ai: { name: "Jido AI draft proposal", tone: "action", description: "Scripted inference proposes a title for the exact checked commit. The job stores the proposal.", facts: [["Model calls", "1"], ["Output", "commit and title"]] }
+        },
+        routes: [
+          {
+            signal: "factory.candidate.prepare", name: "Prepare candidate",
+            work: "Run the worker in Realm. Check the commit bytes and paths.", results: ["Candidate ready"],
+            handoff: { label: "Approval pending", signal: "factory.candidate.approve" },
+            input: [["instruction", "String"]], context: [["Context", "Job ID and host service bindings"]],
+            blocks: [
+              block("state", "LOAD", "Load the pending job", "load_pending_job", {
+                description: "Read the job and its run ID.", uses: ["ash"]
+              }),
+              block("action", "RUN", "Run the worker and commit its result", "run_worker_and_commit", {
+                description: "Run the worker against the bound checkout. Return a candidate commit and its bytes.", uses: ["harness", "realm"]
+              }),
+              block("route", "PARALLEL", "Verify the candidate commit", "verify_commit · 2 checks", {
+                description: "Both results go to the record step.",
+                children: [
+                  block("action", "CHECK", "Check committed bytes", "check_committed_bytes", {
+                    description: "Check the exact commit and bytes returned by the worker.", uses: ["realm"]
+                  }),
+                  block("action", "REVIEW", "Review committed paths", "review_committed_paths", {
+                    description: "Review the paths changed between the base and candidate commits.", uses: ["realm"]
+                  })
+                ]
+              }),
+              block("state", "RECORD", "Record the candidate and start the approval wait", "record_candidate_and_wait", {
+                description: "Save the two check results and a draft title for the same commit. Start the Loom run that waits for approval.",
+                uses: ["ash", "ai", "loom"], related: ["factory.candidate.approve"]
+              }),
+              reply("factory.candidate.prepared", "This signal returns the prepared candidate. Approval arrives as a separate signal.")
+            ],
+            response: "The Lab records the checked candidate and returns factory.candidate.prepared. Its Loom run waits for approval.",
+            related: ["jido.chat.message.received", "factory.candidate.approve"]
+          },
+          {
+            signal: "jido.chat.message.received", name: "Telegram issue received", origin: "Chat event",
+            work: "Record the request and its source conversation.", results: ["Issue accepted"],
+            handoff: { label: "Next signal", signal: "factory.candidate.prepare" },
+            input: chatPayload, context: [["Chat connection", "issues"]],
+            blocks: [
+              block("state", "STORE", "Admit the issue to the job store", "Factory.intake", {
+                description: "Record the source conversation and message with the job.", uses: ["chat", "ash"]
+              }),
+              reply("factory.issue.accepted", "The route returns the job intake result.")
+            ],
+            response: "The case keeps the original job when it replays the source message.",
+            related: ["factory.candidate.prepare"]
+          },
+          {
+            signal: "factory.candidate.approve", name: "Approve candidate", origin: "UI intent",
+            work: "Match the checked commit and resolve the approval wait.", results: ["Approval recorded"],
+            handoff: { label: "Next signal", signal: "factory.draft.publish" },
+            input: [["input", "Map with job and commit strings"]], context: [["Origin in case", "Jido UI Intent"]],
+            blocks: [
+              block("route", "CHECK", "Match the job and checked commit", "Factory.approve", {
+                description: "The job must contain the same candidate, check ID, and review ID.", uses: ["ui", "ash"]
+              }),
+              block("action", "RESUME", "Resolve the Loom approval wait", "Accepted commit", {
+                description: "Confirm the completed run projects the same commit. Save the approval and reuse it on replay.", uses: ["loom", "ash"]
+              }),
+              reply("factory.candidate.approved", "The reply identifies the approved job, run, and commit.")
+            ],
+            response: "The selected job records approval for the checked commit. A later signal starts publication.",
+            related: ["factory.candidate.prepare", "factory.draft.publish"]
+          },
+          {
+            signal: "factory.draft.publish", name: "Publish draft",
+            work: "Find or create the checked draft, then send its link to Chat.", results: ["Draft published"],
+            input: [["Payload", "Empty map"]], context: [["Context", "Approved job and host service bindings"]],
+            blocks: [
+              block("route", "CHECK", "Confirm the approved commit", "Factory.publish", {
+                description: "The approved commit, candidate commit, and candidate branch tip must match.", uses: ["ash", "realm"]
+              }),
+              block("action", "FIND", "Find or create the checked draft", "GitHub Connect", {
+                description: "Search for the existing draft before creating one. After a lost provider reply, the case restarts and replays this signal.",
+                uses: ["github", "ash"]
+              }),
+              block("state", "RECORD", "Record the draft and delivery receipt", "Draft number · Chat receipt", {
+                description: "Record the draft, send its URL back to the source conversation, and store the Chat receipt.", uses: ["ash", "chat"]
+              }),
+              reply("factory.draft.published", "A completed publication returns the draft number, commit, and disposition.")
+            ],
+            response: "The run returns the draft for the approved commit and records one Chat receipt.",
+            alternative: {
+              label: "Lost reply and replay",
+              response: "The first request can create the draft and return an error. After restart, replay finds that draft, records it, and sends one Chat receipt."
+            },
+            related: ["factory.candidate.approve", "jido.chat.message.received"]
+          },
+          {
+            signal: "factory.saved.stage", name: "Stage a worker result",
+            work: "Save the Realm artifact against the original delivery ID.", results: ["Artifact staged"],
+            handoff: { label: "Next signal", signal: "factory.saved.accept" },
+            input: [["instruction", "String"]], context: [["Context", "Signal ID and host service bindings"]],
+            blocks: [
+              block("state", "STAGE", "Save the worker artifact", "Factory.stage_saved", {
+                description: "Stage the artifact in Realm and record it against the original delivery ID. Replay returns the saved result.", uses: ["realm", "harness", "ash"]
+              }),
+              reply("factory.saved.staged", "The reply includes the artifact reference and base commit.")
+            ],
+            response: "The saved artifact can be accepted in a later turn.",
+            related: ["factory.saved.accept"]
+          },
+          {
+            signal: "factory.saved.accept", name: "Accept the saved artifact",
+            work: "Verify the artifact digest and record the approved commit.", results: ["Candidate accepted"],
+            handoff: { label: "Next signal", signal: "factory.saved.publish" },
+            input: [["digest", "String · saved artifact digest"]],
+            blocks: [
+              block("action", "VERIFY", "Check and accept the stored artifact", "Factory.accept_saved", {
+                description: "Match the digest in the stored job and check the candidate from the same base.", uses: ["ash", "realm"]
+              }),
+              reply("factory.saved.accepted", "Return the accepted candidate.")
+            ],
+            response: "The job stores the accepted candidate as the approved commit.",
+            related: ["factory.saved.stage", "factory.saved.publish"]
+          },
+          {
+            signal: "factory.saved.publish", name: "Publish the saved candidate",
+            work: "Find or create the draft for the accepted commit.", results: ["Saved draft published"],
+            input: [["Payload", "Empty map"]], context: [["Context", "Accepted job and host service bindings"]],
+            blocks: [
+              block("action", "FIND", "Find or create the saved draft", "Factory.publish_saved", {
+                description: "Confirm the accepted commit and candidate branch tip. Record or return the draft.", uses: ["ash", "realm", "github"]
+              }),
+              reply("factory.saved.published", "Return the stored or newly published draft.")
+            ],
+            response: "Replay returns the existing draft for the accepted commit.",
+            related: ["factory.saved.accept"]
+          }
+        ]
+      }
+    };
+
+    const byId = (id) => document.getElementById(id);
+    const query = new URLSearchParams(location.search);
+    const escape = (text) => String(text).replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    })[char]);
+    const wrapCode = (text) => escape(text).replace(/[._/]/g, "$&<wbr>");
+
+    let agentKey = Object.hasOwn(fixtures, query.get("agent")) ? query.get("agent") : "counter";
+    let agent = fixtures[agentKey];
+    let route = agent.routes.find(({ signal }) => signal === query.get("signal")) ?? null;
+    let traceOpen = query.get("view") === "sample";
+    const systemTheme = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    let theme = ["dark", "light"].includes(query.get("theme")) ? query.get("theme") : systemTheme;
+
+    function facts(rows) {
+      if (!rows?.length) return "";
+      return `<dl class="facts">${rows.map(([label, value]) => `
+        <div><dt>${escape(label)}</dt><dd>${escape(value)}</dd></div>
+      `).join("")}</dl>`;
+    }
+
+    function related(signals) {
+      if (!signals?.length) return "";
+      return `<div class="related"><span>Related signals</span>${signals.map((signal) => {
+        const linked = agent.routes.find((item) => item.signal === signal);
+        return `<button type="button" data-related="${escape(signal)}">${escape(linked.name)}</button>`;
+      }).join("")}</div>`;
+    }
+
+    function resourceLinks(keys) {
+      if (!keys?.length) return "";
+      return `<div class="resource-links"><span>Uses</span>${keys.map((key) => `
+        <button type="button" class="resource-link" data-open-resource="${escape(key)}">
+          ${escape(agent.resources[key].name)}
+        </button>
+      `).join("")}</div>`;
+    }
+
+    function renderBlock(item) {
+      return `<details class="block${item.verb === "WHEN" ? " hat" : ""}" data-tone="${escape(item.tone)}"${item.open ? " open" : ""}>
+        <summary>
+          <span class="verb">${escape(item.verb)}</span>
+          <span class="block-label">
+            <strong>${escape(item.title)}</strong><code>${wrapCode(item.value)}</code>
+            ${item.uses ? `<span class="step-uses">${item.uses.map((key) => `<span>${escape(agent.resources[key].name)}</span>`).join("")}</span>` : ""}
+          </span>
+          <span class="chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="block-body">
+          ${item.description ? `<p>${escape(item.description)}</p>` : ""}
+          ${facts(item.facts)}
+          ${resourceLinks(item.uses)}
+          ${item.children ? `<div class="nested">${item.children.map(renderBlock).join("")}</div>` : ""}
+          ${related(item.related)}
+        </div>
+      </details>`;
+    }
+
+    function showTheme() {
+      document.documentElement.dataset.theme = theme;
+      byId("theme-toggle").setAttribute("aria-pressed", String(theme === "light"));
+    }
+
+    function updateLink() {
+      if (location.protocol === "file:") return;
+      const url = new URL(location.href);
+      url.searchParams.set("agent", agentKey);
+      url.searchParams.set("theme", theme);
+      if (route) url.searchParams.set("signal", route.signal);
+      else url.searchParams.delete("signal");
+      if (traceOpen) url.searchParams.set("view", "sample");
+      else url.searchParams.delete("view");
+      history.replaceState(null, "", url);
+    }
+
+    function renderAgents() {
+      byId("agents").innerHTML = Object.entries(fixtures).map(([key, entry]) => `
+        <button type="button" data-agent="${key}" aria-pressed="false">${escape(entry.name)}</button>`).join("");
+      byId("agent-select").innerHTML = Object.entries(fixtures).map(([key, entry]) =>
+        `<option value="${key}">${escape(entry.name)}</option>`).join("");
+    }
+
+    function renderResources(blocks) {
+      const keys = new Set();
+      function collect(items) {
+        for (const item of items) {
+          item.uses?.forEach((key) => keys.add(key));
+          if (item.children) collect(item.children);
+        }
+      }
+      collect(blocks);
+      if (!keys.size) return "";
+      return `<h3>Resources in this turn</h3><div class="resource-list">${[...keys].map((key) => {
+        const item = agent.resources[key];
+        return `<details class="resource" id="resource-${escape(key)}" data-tone="${escape(item.tone)}">
+          <summary>
+            <span class="resource-marker" aria-hidden="true"></span>
+            <strong>${escape(item.name)}</strong>
+            <span class="chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="resource-body"><p>${escape(item.description)}</p>${facts(item.facts)}</div>
+        </details>`;
+      }).join("")}</div>`;
+    }
+
+    function renderEntry(entry, index) {
+      const next = entry.handoff && agent.routes.find((item) => item.signal === entry.handoff.signal);
+      return `<article class="entry">
+        <div class="entry-grid">
+          <button type="button" class="trigger" id="trigger-${index}" data-route="${escape(entry.signal)}"
+              aria-controls="turn-${index}" aria-expanded="false">
+            <span class="chevron" aria-hidden="true"></span>
+            <span>${escape(entry.name)}${entry.origin ? `<span class="trigger-origin">${escape(entry.origin)}</span>` : ""}</span>
+          </button>
+          <p class="work">${escape(entry.work)}</p>
+          <div class="result">
+            <ul class="result-list" aria-label="Results">${entry.results.map((result) => `<li>${escape(result)}</li>`).join("")}</ul>
+            ${next ? `<div class="handoff"><span class="handoff-label">${escape(entry.handoff.label)}</span>
+              <button type="button" data-related="${escape(next.signal)}">${escape(next.name)} <span aria-hidden="true">↗</span></button></div>` : `<span class="terminal">Ends here</span>`}
+          </div>
+        </div>
+        <div class="entry-detail" id="turn-${index}" role="region" aria-labelledby="trigger-${index}" hidden></div>
+      </article>`;
+    }
+
+    function renderTrace() {
+      byId("sample-trace").innerHTML = `<h2 id="trace-heading">Sample trace · ${escape(agent.sample.title)}</h2>
+        <p>Example events from the fixture.</p>
+        <ol class="trace-events">${agent.sample.events.map(([kind, title, description, signal]) => `
+          <li>
+            <span class="event-kind">${escape(kind)}</span>
+            <div><strong>${escape(title)}</strong><p>${escape(description)}</p></div>
+            ${signal ? `<button class="trace-link" type="button" data-related="${escape(signal)}" aria-label="Open ${escape(title)} entry point">Open entry point</button>` : ""}
+          </li>`).join("")}</ol>`;
+    }
+
+    function renderActor() {
+      byId("agents").querySelectorAll("button").forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.agent === agentKey));
+      });
+      byId("agent-select").value = agentKey;
+      byId("actor-name").textContent = agent.name;
+      byId("actor-job").textContent = agent.job;
+      byId("route-count").textContent = `${agent.routes.length} ${agent.routes.length === 1 ? "signal" : "signals"}`;
+      const order = ["factory.candidate.prepare", "factory.candidate.approve", "factory.draft.publish"];
+      const sortKey = ({ signal }) => order.includes(signal) ? order.indexOf(signal) : order.length;
+      byId("entries").innerHTML = [...agent.routes].sort((a, b) => sortKey(a) - sortKey(b)).map(renderEntry).join("");
+      renderTrace();
+      byId("sources").innerHTML = `
+        <li><a href="${escape(agent.source)}">Agent source</a></li>
+        ${agent.caseSource ? `<li><a href="${escape(agent.caseSource)}">Lab case</a></li>` : ""}
+        <li><a href="../guides/agent-definition-visual-rules.md">Visual rules</a></li>`;
+      document.title = `${agent.name} · Agent definitions · Jido Studio`;
+    }
+
+    function renderTurn(entry) {
+      return `<div class="turn-steps">
+          <div class="turn-heading">
+            <h3>Work in this turn</h3>
+            <button type="button" class="contract-link" aria-controls="turn-contract">Signal and schema</button>
+          </div>
+          <code class="turn-signal">${wrapCode(entry.signal)}</code>
+          <div class="stack">${entry.blocks.map(renderBlock).join("")}</div>
+          <p class="outcome"><strong>Sample response</strong> · ${escape(entry.response)}</p>
+          ${entry.alternative ? renderBlock(block(
+            "route", "CASE", entry.alternative.label, "Sample outcome", { description: entry.alternative.response }
+          )) : ""}
+          ${related(entry.related)}
+        </div>
+        <aside class="turn-meta" id="turn-contract" tabindex="-1" aria-label="Signal, schema, and resources">
+          <h3>Signal and route</h3>
+          ${facts([["Signal type", entry.signal], ["Route match", "Exact signal type"], ...(entry.context ?? [])])}
+          <h3>Payload schema</h3>${facts(entry.input)}
+          ${renderResources(entry.blocks)}
+        </aside>`;
+    }
+
+    function showRoute(moveFocus = false) {
+      byId("entries").querySelectorAll(".trigger").forEach((button) => {
+        const active = button.dataset.route === route?.signal;
+        const detail = byId(button.getAttribute("aria-controls"));
+        button.setAttribute("aria-expanded", String(active));
+        detail.hidden = !active;
+        detail.innerHTML = active ? renderTurn(route) : "";
+        if (active && moveFocus) button.focus();
+      });
+      byId("selection-status").textContent = route ? `${route.name} details open.` : `${agent.name} entry points.`;
+    }
+
+    function showMode() {
+      byId("sample-trace").hidden = !traceOpen;
+      byId("definition").hidden = traceOpen;
+      byId("trace-toggle").setAttribute("aria-expanded", String(traceOpen));
+      byId("trace-toggle").textContent = traceOpen ? "Back to entry points" : "Sample trace";
+    }
+
+    function selectActor(key) {
+      if (!Object.hasOwn(fixtures, key) || key === agentKey) return;
+      agentKey = key;
+      agent = fixtures[key];
+      route = null;
+      renderActor();
+      showRoute();
+      updateLink();
+    }
+
+    byId("theme-toggle").addEventListener("click", () => {
+      theme = theme === "light" ? "dark" : "light";
+      showTheme();
+      updateLink();
+    });
+
+    byId("trace-toggle").addEventListener("click", () => {
+      traceOpen = !traceOpen;
+      showMode();
+      updateLink();
+    });
+
+    byId("agents").addEventListener("click", (event) => {
+      selectActor(event.target.closest("button")?.dataset.agent);
+    });
+
+    byId("agent-select").addEventListener("change", (event) => selectActor(event.target.value));
+
+    document.querySelector("main").addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      const { route: toggle, related: follow } = button.dataset;
+      if (toggle || follow) {
+        const target = agent.routes.find(({ signal }) => signal === (toggle || follow));
+        if (!target) return;
+        route = toggle && target === route ? null : target;
+        traceOpen = false;
+        showMode();
+        showRoute(Boolean(follow));
+        updateLink();
+      }
+      if (button.dataset.openResource) {
+        const resource = byId(`resource-${button.dataset.openResource}`);
+        resource.open = true;
+        resource.querySelector("summary").focus();
+      }
+      if (button.classList.contains("contract-link")) byId("turn-contract").focus();
+    });
+
+    showTheme();
+    renderAgents();
+    renderActor();
+    showMode();
+    showRoute();
+  </script>
+</body>
+</html>

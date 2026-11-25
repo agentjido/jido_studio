@@ -1,0 +1,444 @@
+#studio-definition {
+  --definition-signal: #71ddef;
+  --definition-state: #c0a8f6;
+  --definition-reply: #82dbb1;
+  --definition-wait: #e7bf7c;
+  display: grid;
+  gap: 1rem;
+}
+
+#studio-shell:has(#studio-theme-toggle[aria-pressed="true"]) #studio-definition {
+  --definition-signal: #076477;
+  --definition-state: #624098;
+  --definition-reply: #216c48;
+  --definition-wait: #785219;
+}
+
+#studio-definition code {
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+#studio-definition :is(h2, h3, h4, h5, strong) {
+  font-weight: 650;
+}
+
+#studio-definition :focus-visible {
+  outline: 2px solid var(--definition-signal);
+  outline-offset: -2px;
+}
+
+#studio-definition a:not([class]) {
+  color: var(--definition-signal);
+}
+
+#studio-definition a:hover,
+#studio-definition summary:hover {
+  text-decoration: underline;
+}
+
+#studio-definition summary {
+  cursor: pointer;
+}
+
+.studio-definition-featured,
+.studio-definition-actors,
+.studio-definition-resources {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 0.65rem;
+}
+
+.studio-definition-featured a {
+  display: grid;
+  gap: 0.25rem;
+  align-content: start;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 0.55rem;
+  background: var(--studio-card);
+  font-size: 0.86rem;
+}
+
+.studio-definition-featured a[aria-current] {
+  border-color: var(--definition-signal);
+  background: color-mix(in srgb, var(--definition-signal) 8%, var(--studio-card));
+}
+
+.studio-definition-featured span {
+  color: var(--studio-muted);
+  font-size: 0.78rem;
+}
+
+.studio-definition-workspace {
+  display: grid;
+  grid-template-columns: minmax(13rem, 1fr) minmax(0, 3.7fr);
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.studio-definition-catalog {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.studio-definition-panel {
+  min-width: 0;
+  border: 1px solid var(--studio-border);
+  border-radius: 0.65rem;
+  background: var(--studio-card);
+  overflow: clip;
+}
+
+.studio-definition-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  padding: 0.75rem 0.85rem;
+  border-bottom: 1px solid var(--studio-border);
+}
+
+.studio-definition-panel-header :is(span, a) {
+  font-size: 0.78rem;
+}
+
+.studio-definition-panel-header span,
+.studio-definition-section-header p {
+  color: var(--studio-muted);
+}
+
+#studio-definition-inspector-title,
+#studio-definition-inspector-title :is(code, span) {
+  font-size: 1.1rem;
+  color: var(--studio-text);
+}
+
+#studio-definition-filter {
+  padding: 0.5rem 0.65rem;
+}
+
+#studio-definition-filter input {
+  width: 100%;
+  border: 1px solid var(--studio-border);
+  border-radius: 0.4rem;
+  padding: 0.45rem 0.55rem;
+  background: var(--studio-bg);
+  color: var(--studio-text);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+#studio-definition-routes {
+  max-height: 23rem;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+#studio-definition-routes :is(h3, p) {
+  padding: 0.3rem 0.7rem;
+  color: var(--studio-muted);
+  font: 0.72rem/1.5 ui-monospace, monospace;
+}
+
+#studio-definition-routes h3 {
+  position: sticky;
+  top: 0;
+  background: var(--studio-sidebar);
+  border-block: 1px solid var(--studio-border);
+}
+
+#studio-definition-routes ul,
+.studio-definition-components,
+.studio-definition-options,
+.studio-definition-dependencies,
+.studio-definition-actors,
+.studio-definition-resources,
+.studio-definition-connections,
+.studio-definition-destinations,
+.studio-definition-schedules {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#studio-definition-routes a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  padding: 0.4rem 0.65rem;
+}
+
+#studio-definition-routes a[aria-current] {
+  background: color-mix(in srgb, var(--definition-signal) 10%, var(--studio-card));
+  box-shadow: inset 3px 0 var(--definition-signal);
+}
+
+.studio-definition-initial summary {
+  padding: 0.65rem 0.85rem;
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.studio-definition-fields {
+  margin: 0;
+}
+
+.studio-definition-fields > div {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 0.45rem;
+  padding: 0.25rem 0;
+  border-top: 1px solid var(--studio-border);
+  overflow-wrap: anywhere;
+}
+
+.studio-definition-initial > .studio-definition-fields {
+  padding: 0 0.85rem 0.55rem;
+}
+
+.studio-definition-fields dt {
+  color: var(--studio-muted);
+}
+
+.studio-definition-body {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.8rem;
+}
+
+.studio-definition-blocks,
+.studio-definition-components,
+.studio-definition-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13.5rem), 1fr));
+  gap: 0.55rem;
+}
+
+.studio-definition-block {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 0.45rem;
+  background: var(--studio-sidebar);
+  font-size: 0.83rem;
+  overflow-wrap: anywhere;
+}
+
+.studio-definition-block > span,
+.studio-definition-schedules span {
+  color: var(--studio-muted);
+}
+
+.studio-definition-block[data-kind="state"] h3 { color: var(--definition-state); }
+.studio-definition-block[data-kind="reply"] h3 { color: var(--definition-reply); }
+.studio-definition-block[data-kind="wait"] h4 .studio-definition-kind { color: var(--definition-wait); }
+.studio-definition-block[data-kind="root"] { border-color: var(--definition-signal); }
+.studio-definition-block[data-kind="bus"] h3 { color: var(--definition-signal); }
+
+.studio-definition-kind,
+.studio-definition-flow-title span,
+.studio-definition-nested-flow summary,
+.studio-definition-tag {
+  color: var(--definition-signal);
+}
+
+.studio-definition-kind,
+.studio-definition-flow-title span,
+.studio-definition-tag {
+  display: inline-block;
+  margin-inline-end: 0.2rem;
+  padding: 0.12rem 0.35rem;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.studio-definition-flow {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--definition-signal) 48%, var(--studio-border));
+  border-radius: 0.55rem;
+  background: var(--studio-bg);
+}
+
+.studio-definition-flow-layer[data-joined]::before {
+  content: "↓";
+  display: block;
+  width: fit-content;
+  margin: -0.22rem auto 0.35rem;
+  color: var(--definition-signal);
+}
+
+.studio-definition-flow-layer[data-level="0"] > .studio-definition-components {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
+}
+
+.studio-definition-components > :has(.studio-definition-nested-flow[open], .studio-definition-step-details[open]) {
+  grid-column: 1 / -1;
+}
+
+.studio-definition-dependencies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.studio-definition-dependencies li {
+  padding: 0.12rem 0.38rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 0.25rem;
+  color: var(--definition-signal);
+  font-size: 0.75rem;
+}
+
+.studio-definition-dependencies li::before {
+  content: "← ";
+}
+
+.studio-definition-step-details > summary,
+.studio-definition-nested-flow > summary {
+  margin-block: 0.25rem;
+  color: var(--definition-signal);
+  font-size: 0.82rem;
+}
+
+.studio-definition-step-details[open] > code {
+  display: block;
+  margin-block: 0.35rem;
+}
+
+.studio-definition-flow-output {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 0.45rem;
+}
+
+#studio-definition-topology,
+#studio-definition-resources {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.studio-definition-section-header p {
+  margin-top: 0.15rem;
+  font-size: 0.82rem;
+}
+
+.studio-definition-actors h3,
+.studio-definition-resources h3 {
+  font-size: 1rem;
+}
+
+.studio-definition-actors summary {
+  color: var(--definition-signal);
+  font-size: 0.8rem;
+}
+
+.studio-definition-connections {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.studio-definition-connection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 0.45rem;
+  background: var(--studio-card);
+  font-size: 0.83rem;
+}
+
+.studio-definition-connection[data-selected] {
+  border-color: var(--definition-signal);
+}
+
+.studio-definition-endpoint,
+.studio-definition-destinations > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.35rem;
+  background: var(--studio-sidebar);
+}
+
+.studio-definition-destinations {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.studio-definition-connection-signal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.studio-definition-connection-signal::before,
+.studio-definition-connection-signal::after {
+  content: "→";
+  color: var(--definition-signal);
+}
+
+.studio-definition-schedules {
+  padding-inline: 0.85rem;
+}
+
+.studio-definition-schedules li,
+.studio-definition-schedules li > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.7rem;
+}
+
+.studio-definition-schedules li {
+  justify-content: space-between;
+  padding: 0.55rem 0;
+  font-size: 0.83rem;
+}
+
+.studio-definition-schedules li + li {
+  border-top: 1px solid var(--studio-border);
+}
+
+@media (max-width: 64rem) {
+  .studio-definition-workspace {
+    grid-template-columns: minmax(11rem, 1fr) minmax(0, 2.8fr);
+  }
+}
+
+@media (max-width: 48rem) {
+  .studio-definition-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #studio-definition-routes {
+    max-height: 10rem;
+  }
+
+  .studio-definition-connection {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .studio-definition-connection-signal {
+    justify-content: start;
+    text-align: start;
+  }
+
+  .studio-definition-connection-signal::before { content: "↓"; }
+  .studio-definition-connection-signal::after { content: none; }
+}
